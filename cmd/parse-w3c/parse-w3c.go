@@ -26,13 +26,13 @@ func main() {
 	}
 	defer f.Close()
 
-	p := parser.NewW3CFileParser(f)
+	p := parser.NewFileParser(f)
 	err = p.ParseHeader()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error building parser:", err)
 		os.Exit(-1)
 	}
-	var l *parser.W3CLine
+	var l *parser.Line
 	for {
 		l, err = p.Next()
 		if l == nil || err != nil {
