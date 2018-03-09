@@ -20,7 +20,7 @@
 // Because they lack location information, these types do not represent unique
 // moments or intervals of time. Use time.Time for that purpose.
 
-package w3c_extended_log_parser
+package parser
 
 import (
 	"fmt"

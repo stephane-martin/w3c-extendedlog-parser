@@ -1,4 +1,4 @@
-package w3c_extended_log_parser
+package parser
 
 import (
 	"bufio"

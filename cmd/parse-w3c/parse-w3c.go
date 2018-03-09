@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/stephane-martin/w3c_extended_log_parser"
+	parser "github.com/stephane-martin/w3c-extendedlog-parser"
 )
 
 var filename = flag.String("fname", "", "path to the file to parse")
@@ -26,15 +26,15 @@ func main() {
 	}
 	defer f.Close()
 
-	parser := w3c_extended_log_parser.NewW3CFileParser(f)
-	err = parser.ParseHeader()
+	p := parser.NewW3CFileParser(f)
+	err = p.ParseHeader()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error building parser:", err)
 		os.Exit(-1)
 	}
-	var l *w3c_extended_log_parser.W3CLine
+	var l *parser.W3CLine
 	for {
-		l, err = parser.Next()
+		l, err = p.Next()
 		if l == nil || err != nil {
 			break
 		}
