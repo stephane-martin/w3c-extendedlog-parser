@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,20 +14,12 @@ import (
 	parser "github.com/stephane-martin/w3c-extendedlog-parser"
 )
 
-// push2esCmd represents the push2es command
 var push2esCmd = &cobra.Command{
 	Use:   "push2es",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
-
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
+	Short: "Parse accesslog files and push events to Elasticsearch",
 	Run: func(cmd *cobra.Command, args []string) {
 		if len(fnames) == 0 {
-			fmt.Fprintln(os.Stderr, "specify the files to be parsed")
-			os.Exit(-1)
+			fatal(errors.New("specify the files to be parsed"))
 		}
 
 		logger := log15.New()
@@ -44,16 +37,10 @@ to quickly create a Cobra application.`,
 		}
 
 		client, err := elastic.NewClient(elasticOpts...)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(-1)
-		}
+		fatal(err)
 
 		version, err := client.ElasticsearchVersion(esURL)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(-1)
-		}
+		fatal(err)
 		fmt.Fprintln(os.Stdout, "Elasticsearch version:", version)
 
 		ctx := context.Background()
@@ -65,11 +52,7 @@ to quickly create a Cobra application.`,
 			BulkSize(-1).
 			Backoff(elastic.StopBackoff{}).
 			Do(ctx)
-
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(-1)
-		}
+		fatal(err)
 
 		for _, fname := range fnames {
 			fname = strings.TrimSpace(fname)
@@ -96,20 +79,12 @@ to quickly create a Cobra application.`,
 				i++
 				proc.Add(elastic.NewBulkIndexRequest().Doc(l).Index(indexName).Type("accesslogs"))
 				if i >= 1000 {
-					err = proc.Flush()
-					if err != nil {
-						fmt.Fprintln(os.Stderr, err)
-						os.Exit(-1)
-					}
+					fatal(proc.Flush())
 					i = 0
 				}
 			}
 			if i > 0 {
-				err = proc.Flush()
-				if err != nil {
-					fmt.Fprintln(os.Stderr, err)
-					os.Exit(-1)
-				}
+				fatal(proc.Flush())
 			}
 		}
 	},

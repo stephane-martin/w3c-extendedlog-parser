@@ -87,6 +87,54 @@
 			"revisionTime": "2014-10-17T20:07:13Z"
 		},
 		{
+			"checksumSHA1": "LrbffdltGu9kdB8I5AA2M5n7kew=",
+			"path": "github.com/jackc/pgx",
+			"revision": "da3231b0b66e2e74cdb779f1d46c5e958ba8be27",
+			"revisionTime": "2018-01-15T17:48:07Z",
+			"version": "v3.1.0",
+			"versionExact": "v3.1.0"
+		},
+		{
+			"checksumSHA1": "rsDmBQ/jGFUN2t6G4c3ohkKGKdQ=",
+			"path": "github.com/jackc/pgx/chunkreader",
+			"revision": "da3231b0b66e2e74cdb779f1d46c5e958ba8be27",
+			"revisionTime": "2018-01-15T17:48:07Z",
+			"version": "v3.1.0",
+			"versionExact": "v3.1.0"
+		},
+		{
+			"checksumSHA1": "wArf/u0cmHsLafG2tOcjVUUXQBw=",
+			"path": "github.com/jackc/pgx/internal/sanitize",
+			"revision": "da3231b0b66e2e74cdb779f1d46c5e958ba8be27",
+			"revisionTime": "2018-01-15T17:48:07Z",
+			"version": "v3.1.0",
+			"versionExact": "v3.1.0"
+		},
+		{
+			"checksumSHA1": "OCtOmvS8BLHQAyQXJ/Ub8QxKz0s=",
+			"path": "github.com/jackc/pgx/pgio",
+			"revision": "da3231b0b66e2e74cdb779f1d46c5e958ba8be27",
+			"revisionTime": "2018-01-15T17:48:07Z",
+			"version": "v3.1.0",
+			"versionExact": "v3.1.0"
+		},
+		{
+			"checksumSHA1": "Fj02uVXJiJ8K2DxAwU9zRTj5Ppo=",
+			"path": "github.com/jackc/pgx/pgproto3",
+			"revision": "da3231b0b66e2e74cdb779f1d46c5e958ba8be27",
+			"revisionTime": "2018-01-15T17:48:07Z",
+			"version": "v3.1.0",
+			"versionExact": "v3.1.0"
+		},
+		{
+			"checksumSHA1": "R48SikoDGwiKdZ5th5VFI5bD07Y=",
+			"path": "github.com/jackc/pgx/pgtype",
+			"revision": "da3231b0b66e2e74cdb779f1d46c5e958ba8be27",
+			"revisionTime": "2018-01-15T17:48:07Z",
+			"version": "v3.1.0",
+			"versionExact": "v3.1.0"
+		},
+		{
 			"checksumSHA1": "NiPRC0JDsfCFir75S1TrFHPP8+M=",
 			"path": "github.com/magiconair/properties",
 			"revision": "2c9e9502788518c97fe44e8955cd069417ee89df",

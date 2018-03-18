@@ -62,8 +62,7 @@ type esFields map[string]anyEsField
 func newMessageFields(fieldNames []string) (fields esFields) {
 	fields = make(map[string]anyEsField)
 	for _, name := range fieldNames {
-		t := parser.GuessType(name)
-		switch t {
+		switch parser.GuessType(name) {
 		case parser.MyDate:
 			fields[name] = newDateField()
 		case parser.MyIP:
@@ -83,6 +82,7 @@ func newMessageFields(fieldNames []string) (fields esFields) {
 		case parser.String:
 			fields[name] = newMulti()
 		default:
+			fields[name] = newMulti()
 		}
 	}
 	fields["@timestamp"] = newDatetimeField()
