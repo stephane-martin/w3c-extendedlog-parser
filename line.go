@@ -15,13 +15,24 @@ type Line struct {
 	names  []string
 }
 
-func newLine(names []string) (l Line) {
-	l.fields = make(map[string]interface{}, len(names))
+func NewLine(names []string) (l *Line) {
+	l = &Line{}
+	l.Reset(names)
+	return l
+}
+
+func (l *Line) Reset(names []string) {
 	l.names = names
-	for _, name := range names {
+	if l.fields == nil {
+		l.fields = make(map[string]interface{}, len(l.names))
+	} else {
+		for k := range l.fields {
+			delete(l.fields, k)
+		}
+	}
+	for _, name := range l.names {
 		l.fields[name] = nil
 	}
-	return l
 }
 
 func (l *Line) Names() (ret []string) {

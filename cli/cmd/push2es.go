@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/inconshreveable/log15"
 	"github.com/olivere/elastic"
@@ -52,9 +53,14 @@ var push2esCmd = &cobra.Command{
 			BulkSize(-1).
 			Backoff(elastic.StopBackoff{}).
 			Do(ctx)
+
 		fatal(err)
 
+		lines := make([]*parser.Line, 0, 1000)
+		var l *parser.Line
+
 		for _, fname := range fnames {
+			lines = lines[:0]
 			fname = strings.TrimSpace(fname)
 			f, err := os.Open(fname)
 			if err != nil {
@@ -69,22 +75,34 @@ var push2esCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "Error building parser:", err)
 				continue
 			}
-			var l *parser.Line
-			var i int
+
+			linePool := &sync.Pool{
+				New: func() interface{} {
+					return parser.NewLine(p.FieldNames)
+				},
+			}
+
 			for {
-				l, err = p.Next()
+				l, err = p.NextTo(linePool.Get().(*parser.Line))
 				if l == nil || err != nil {
 					break
 				}
-				i++
+				lines = append(lines, l)
 				proc.Add(elastic.NewBulkIndexRequest().Doc(l).Index(indexName).Type("accesslogs"))
-				if i >= 1000 {
+				if len(lines) == 1000 {
 					fatal(proc.Flush())
-					i = 0
+					for _, l = range lines {
+						linePool.Put(l)
+					}
+					lines = lines[:0]
 				}
 			}
-			if i > 0 {
+			if len(lines) > 0 {
 				fatal(proc.Flush())
+				for _, l = range lines {
+					linePool.Put(l)
+				}
+				lines = lines[:0]
 			}
 		}
 	},

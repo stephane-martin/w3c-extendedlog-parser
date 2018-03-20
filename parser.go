@@ -100,13 +100,24 @@ func (p *FileParser) SetFieldNames(fieldNames []string) *FileParser {
 
 // Next returns the next parsed log line.
 func (p *FileParser) Next() (*Line, error) {
+	return p.NextTo(nil)
+}
+
+// NextTo returns the next parsed log line, reusing the given line.
+func (p *FileParser) NextTo(l *Line) (*Line, error) {
 	if len(p.FileHeader.FieldNames) == 0 {
 		return nil, errors.New("No field names")
 	}
 	var name string
 	var i int
 	if p.scanner.Scan() {
-		l := newLine(p.FileHeader.FieldNames)
+		if l == nil {
+			// allocate a new line
+			l = NewLine(p.FieldNames)
+		} else {
+			// reuse the given line, but make sure to clean it before usage
+			l.Reset(p.FieldNames)
+		}
 		fields := p.scanner.Strings()
 		if len(fields) != len(p.FieldNames) {
 			return nil, fmt.Errorf("Wrong number of fields: expected = %d, actual = %d", len(p.FieldNames), len(fields))
@@ -114,7 +125,7 @@ func (p *FileParser) Next() (*Line, error) {
 		for i, name = range p.FieldNames {
 			l.add(name, fields[i])
 		}
-		return &l, nil
+		return l, nil
 	}
 	return nil, p.scanner.Err()
 }

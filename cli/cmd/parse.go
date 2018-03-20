@@ -14,6 +14,7 @@ import (
 var fnames = make([]string, 0)
 var jsonExport bool
 var csvExport bool
+var suffix bool
 
 func foreach(sl []string, f func(string) string) (ret []string) {
 	ret = make([]string, 0, len(sl))
@@ -27,7 +28,33 @@ func sanitize(header string) (ret string) {
 	ret = strings.Replace(header, "(", "_", -1)
 	ret = strings.Replace(ret, ")", "_", -1)
 	ret = strings.Replace(ret, "-", "_", -1)
+	ret = strings.Replace(ret, "__", "_", -1)
+	ret = strings.Trim(ret, "_")
 	return ret
+}
+
+func suffixHeaders(header string) (ret string) {
+	switch parser.GuessType(header) {
+	case parser.MyDate:
+		return header + "_date"
+	case parser.MyIP:
+		return header + "_ip"
+	case parser.MyTime:
+		return header + "_time"
+	case parser.MyTimestamp:
+		return header + "_timestamp"
+	case parser.MyURI:
+		return header + "_uri"
+	case parser.Float64:
+		return header + "_float"
+	case parser.Int64:
+		return header + "_int"
+	case parser.Bool:
+		return header + "_bool"
+	case parser.String:
+		return header + "_str"
+	}
+	return header + "_str"
 }
 
 var parseCmd = &cobra.Command{
@@ -60,11 +87,21 @@ var parseCmd = &cobra.Command{
 			}
 			if csvExport {
 				// print header line
-				fmt.Println(strings.Join(foreach(p.FieldNames, sanitize), ","))
+				if suffix {
+					fmt.Println(strings.Join(
+						foreach(
+							foreach(p.FieldNames, suffixHeaders),
+							sanitize,
+						),
+						",",
+					))
+				} else {
+					fmt.Println(strings.Join(foreach(p.FieldNames, sanitize), ","))
+				}
 			}
 			var l *parser.Line
 			for {
-				l, err = p.Next()
+				l, err = p.NextTo(l)
 				if l == nil || err != nil {
 					break
 				}
@@ -85,4 +122,5 @@ func init() {
 	parseCmd.Flags().StringArrayVar(&fnames, "filename", []string{}, "the files to parse")
 	parseCmd.Flags().BoolVar(&jsonExport, "json", false, "print the logs as JSON")
 	parseCmd.Flags().BoolVar(&csvExport, "csv", false, "print the logs as CSV")
+	parseCmd.Flags().BoolVar(&suffix, "suffix", false, "when exporting to CSV, suffix the field names with data type")
 }

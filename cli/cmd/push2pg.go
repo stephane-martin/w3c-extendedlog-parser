@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx"
@@ -39,8 +40,14 @@ var push2pgCmd = &cobra.Command{
 		fatal(err)
 		defer conn.Close()
 
+		rows := make([][]interface{}, 0, 1000)
+		var l *parser.Line
+		var row []interface{}
+		var name string
+		var val interface{}
+
 		for _, fname := range fnames {
-			rows := make([][]interface{}, 0, 1000)
+			rows = rows[:0]
 			fname = strings.TrimSpace(fname)
 			f, err := os.Open(fname)
 			if err != nil {
@@ -55,23 +62,31 @@ var push2pgCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "Error building parser:", err)
 				continue
 			}
+			nbFields := len(p.FieldNames)
 
-			columnNames := make([]string, 0, len(p.FileHeader.FieldNames))
-			types := make(map[string]parser.Kind, len(p.FileHeader.FieldNames))
-			for _, name := range p.FileHeader.FieldNames {
+			columnNames := make([]string, 0, nbFields)
+			types := make(map[string]parser.Kind, nbFields)
+			for _, name = range p.FieldNames {
+				// make sure column names are PG compatible
 				columnNames = append(columnNames, pgKey(name))
+				// store the data type for each column
 				types[name] = parser.GuessType(name)
 			}
 
-			var l *parser.Line
+			rowPool := &sync.Pool{
+				New: func() interface{} {
+					return make([]interface{}, 0, nbFields)
+				},
+			}
+
 			for {
-				row := make([]interface{}, 0, len(p.FileHeader.FieldNames))
-				l, err = p.Next()
+				row = rowPool.Get().([]interface{})[:0]
+				l, err = p.NextTo(l)
 				if l == nil || err != nil {
 					break
 				}
-				for _, name := range p.FileHeader.FieldNames {
-					val := l.Get(name)
+				for _, name = range l.Names() {
+					val = l.Get(name)
 					if val == nil {
 						// append default value for that type
 						row = append(row, pgDefaultVal(types[name]))
@@ -81,14 +96,17 @@ var push2pgCmd = &cobra.Command{
 					row = append(row, pgConvert(types[name], val))
 				}
 				rows = append(rows, row)
-				if len(rows) >= 1000 {
+				if len(rows) == 1000 {
 					_, err = conn.CopyFrom(
 						pgx.Identifier{tableName},
 						columnNames,
 						pgx.CopyFromRows(rows),
 					)
 					fatal(err)
-					rows = make([][]interface{}, 0, 1000)
+					for _, row = range rows {
+						rowPool.Put(row)
+					}
+					rows = rows[:0]
 				}
 			}
 			if len(rows) > 0 {
@@ -98,6 +116,10 @@ var push2pgCmd = &cobra.Command{
 					pgx.CopyFromRows(rows),
 				)
 				fatal(err)
+				for _, row = range rows {
+					rowPool.Put(row)
+				}
+				rows = rows[:0]
 			}
 		}
 
