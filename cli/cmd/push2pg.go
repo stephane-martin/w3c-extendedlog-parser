@@ -71,10 +71,10 @@ var push2pgCmd = &cobra.Command{
 					break
 				}
 				for _, name := range p.FileHeader.FieldNames {
-					val := l.Fields[name]
+					val := l.Get(name)
 					if val == nil {
 						// append default value for that type
-						row = append(row, defaultValue(types[name]))
+						row = append(row, pgDefaultVal(types[name]))
 						continue
 					}
 					// append converted type
@@ -112,7 +112,7 @@ func (src *MyMyTime) EncodeBinary(ci *pgtype.ConnInfo, buf []byte) ([]byte, erro
 	return pgio.AppendInt64(buf, (int64(src.Hour)*usecsPerHour)+(int64(src.Minute)*usecsPerMinute)+(int64(src.Second)*usecsPerSec)+(int64(src.Nanosecond)/nanosecsPerUsec)), nil
 }
 
-func defaultValue(t parser.Kind) interface{} {
+func pgDefaultVal(t parser.Kind) interface{} {
 	switch t {
 	case parser.MyDate:
 		return &pgtype.Date{Status: pgtype.Present, Time: time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)}
