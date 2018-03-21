@@ -126,12 +126,20 @@ var push2pgCmd = &cobra.Command{
 	},
 }
 
+// MyMyTime encapsulates parser.Time so that it can be serialized to PG.
+//
+// We don't implement EncodeBinary on MyTime to avoid a dependancy on pgio
+// in the library part.
 type MyMyTime struct {
 	parser.Time
 }
 
-func (src *MyMyTime) EncodeBinary(ci *pgtype.ConnInfo, buf []byte) ([]byte, error) {
-	return pgio.AppendInt64(buf, (int64(src.Hour)*usecsPerHour)+(int64(src.Minute)*usecsPerMinute)+(int64(src.Second)*usecsPerSec)+(int64(src.Nanosecond)/nanosecsPerUsec)), nil
+// EncodeBinary implements the MarshalBinary interface.
+func (src MyMyTime) EncodeBinary(ci *pgtype.ConnInfo, buf []byte) ([]byte, error) {
+	return pgio.AppendInt64(
+		buf,
+		(int64(src.Hour)*usecsPerHour)+(int64(src.Minute)*usecsPerMinute)+(int64(src.Second)*usecsPerSec)+(int64(src.Nanosecond)/nanosecsPerUsec),
+	), nil
 }
 
 func pgDefaultVal(t parser.Kind) interface{} {
@@ -168,7 +176,7 @@ func pgConvert(t parser.Kind, value interface{}) interface{} {
 		inet.Set(value.(net.IP))
 		return inet
 	case parser.MyTime:
-		return &MyMyTime{Time: value.(parser.Time)}
+		return MyMyTime{Time: value.(parser.Time)}
 	case parser.MyTimestamp:
 		return &pgtype.Timestamptz{Status: pgtype.Present, Time: value.(time.Time)}
 	case parser.MyURI:
