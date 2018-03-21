@@ -107,6 +107,7 @@ func (l *Line) MarshalJSON() ([]byte, error) {
 	return json.Marshal(newFields)
 }
 
+// WriteTo writes the line to the given writer
 func (l *Line) WriteTo(w io.Writer, jsonExport bool) (err error) {
 	if jsonExport {
 		return json.NewEncoder(w).Encode(l)

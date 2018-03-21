@@ -67,6 +67,10 @@ var parseCmd = &cobra.Command{
 		if jsonExport && csvExport {
 			fatal(errors.New("--json and --csv are exclusive"))
 		}
+		if !jsonExport && !csvExport {
+			jsonExport = true
+		}
+
 		for _, fname := range fnames {
 			fname = strings.TrimSpace(fname)
 			f, err := os.Open(fname)
@@ -74,47 +78,52 @@ var parseCmd = &cobra.Command{
 				fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
 				continue
 			}
-			defer f.Close()
-
-			p := parser.NewFileParser(f)
-			err = p.ParseHeader()
+			err = doParse(f, os.Stdout, jsonExport, csvExport, suffix)
+			f.Close()
 			if err != nil {
 				fmt.Fprintln(os.Stderr, "Error building parser:", err)
-				continue
 			}
-			if !jsonExport && !csvExport {
-				jsonExport = true
-			}
-			if csvExport {
-				// print header line
-				if suffix {
-					fmt.Println(strings.Join(
-						foreach(
-							foreach(p.FieldNames, suffixHeaders),
-							sanitize,
-						),
-						",",
-					))
-				} else {
-					fmt.Println(strings.Join(foreach(p.FieldNames, sanitize), ","))
-				}
-			}
-			var l *parser.Line
-			for {
-				l, err = p.NextTo(l)
-				if l == nil || err != nil {
-					break
-				}
-				err = l.WriteTo(os.Stdout, jsonExport)
-				if err != nil {
-					fmt.Fprintln(os.Stderr, err)
-				}
-			}
-			if err != nil && err != io.EOF {
-				fmt.Fprintln(os.Stderr, err)
-			}
+
 		}
 	},
+}
+
+func doParse(in io.Reader, out io.Writer, doJSON bool, doCSV bool, printSuffix bool) error {
+	p := parser.NewFileParser(in)
+	err := p.ParseHeader()
+	if err != nil {
+		return err
+	}
+
+	if doCSV {
+		// print header line
+		if printSuffix {
+			fmt.Fprintln(out, strings.Join(
+				foreach(
+					foreach(p.FieldNames, suffixHeaders),
+					sanitize,
+				),
+				",",
+			))
+		} else {
+			fmt.Fprintln(out, strings.Join(foreach(p.FieldNames, sanitize), ","))
+		}
+	}
+	var l *parser.Line
+	for {
+		l, err = p.NextTo(l)
+		if l == nil || err != nil {
+			break
+		}
+		err = l.WriteTo(out, doJSON)
+		if err != nil {
+			return err
+		}
+	}
+	if err != nil && err != io.EOF {
+		return err
+	}
+	return nil
 }
 
 func init() {
