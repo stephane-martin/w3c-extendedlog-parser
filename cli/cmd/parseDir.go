@@ -33,17 +33,19 @@ var parseDirCmd = &cobra.Command{
 		fatal(err)
 		input, err = filepath.Abs(filepath.Join(curdir, input))
 		fatal(err)
-		outputInfos, err := os.Stat(output)
-		if err != nil && !os.IsNotExist(err) {
-			// error when stat'ing the output directory
+		if len(output) > 0 {
+			outputInfos, err := os.Stat(output)
+			if err != nil && !os.IsNotExist(err) {
+				// error when stat'ing the output directory
+				fatal(err)
+			}
+			if err == nil && !outputInfos.IsDir() {
+				// output directory exists but is not a directory
+				fatal(errors.New("output is not a directory"))
+			}
+			output, err = filepath.Abs(output)
 			fatal(err)
 		}
-		if err == nil && !outputInfos.IsDir() {
-			// output directory exists but is not a directory
-			fatal(errors.New("output is not a directory"))
-		}
-		output, err = filepath.Abs(output)
-		fatal(err)
 
 		inputFiles := make([]string, 0)
 		if len(extension) > 0 {
