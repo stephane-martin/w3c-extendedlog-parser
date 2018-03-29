@@ -189,6 +189,18 @@
 			"revisionTime": "2018-02-20T23:01:11Z"
 		},
 		{
+			"checksumSHA1": "O60x2mXes26ITuTIyUMwqhOKsfI=",
+			"path": "github.com/mozillazg/go-unidecode",
+			"revision": "8772af720c7f2f4d216cc73c5f23de17450dd008",
+			"revisionTime": "2016-11-07T13:59:01Z"
+		},
+		{
+			"checksumSHA1": "8aydIRe3ywfQEZ1IM1RtC1TGfNg=",
+			"path": "github.com/mozillazg/go-unidecode/table",
+			"revision": "8772af720c7f2f4d216cc73c5f23de17450dd008",
+			"revisionTime": "2016-11-07T13:59:01Z"
+		},
+		{
 			"checksumSHA1": "v0yf7J6dGcIEOrEQn0WdCt6rRak=",
 			"path": "github.com/olivere/elastic",
 			"revision": "9f4560b20fb3bd4bb855fada3e6feea59b26ce66",
@@ -285,6 +297,30 @@
 			"revisionTime": "2018-03-15T08:13:33Z"
 		},
 		{
+			"checksumSHA1": "Mr4ur60bgQJnQFfJY0dGtwWwMPE=",
+			"path": "golang.org/x/text/encoding",
+			"revision": "ece95c760240037f89ebcbdd7155ac8cb52e38fa",
+			"revisionTime": "2018-03-21T20:27:14Z"
+		},
+		{
+			"checksumSHA1": "DSdlK4MKI/a3U8Zaee2XKBe01Fo=",
+			"path": "golang.org/x/text/encoding/charmap",
+			"revision": "ece95c760240037f89ebcbdd7155ac8cb52e38fa",
+			"revisionTime": "2018-03-21T20:27:14Z"
+		},
+		{
+			"checksumSHA1": "zeHyHebIZl1tGuwGllIhjfci+wI=",
+			"path": "golang.org/x/text/encoding/internal",
+			"revision": "ece95c760240037f89ebcbdd7155ac8cb52e38fa",
+			"revisionTime": "2018-03-21T20:27:14Z"
+		},
+		{
+			"checksumSHA1": "7kYqxy64WhMjFIFZgN7tJ3lbKxM=",
+			"path": "golang.org/x/text/encoding/internal/identifier",
+			"revision": "ece95c760240037f89ebcbdd7155ac8cb52e38fa",
+			"revisionTime": "2018-03-21T20:27:14Z"
+		},
+		{
 			"checksumSHA1": "ziMb9+ANGRJSSIuxYdRbA+cDRBQ=",
 			"path": "golang.org/x/text/transform",
 			"revision": "4a13a3860a6e13b9c8d09ceeb19f19a4b68c1a4e",
@@ -303,5 +339,5 @@
 			"revisionTime": "2018-02-23T19:12:37Z"
 		}
 	],
-	"rootPath": "github.com/stephane-martin/w3c-extendedlog-parser"
+	"rootPath": "github.com/stephane-martin/w3c-extendedlog-parser/cli"
 }

@@ -9,12 +9,15 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/pgio"
 	"github.com/jackc/pgx/pgtype"
+	unidecode "github.com/mozillazg/go-unidecode"
 	"github.com/spf13/cobra"
 	parser "github.com/stephane-martin/w3c-extendedlog-parser"
+	"golang.org/x/text/encoding/charmap"
 )
 
 const (
@@ -23,6 +26,8 @@ const (
 	usecsPerSec     = 1000000
 	nanosecsPerUsec = 1000
 )
+
+var isoDecoder = charmap.ISO8859_15.NewDecoder()
 
 var push2pgCmd = &cobra.Command{
 	Use:   "push2pg",
@@ -215,7 +220,7 @@ func pgConvert(t parser.Kind, value interface{}) interface{} {
 		}
 		return &pgtype.Timestamptz{Status: pgtype.Present, Time: v}
 	case parser.MyURI:
-		return value.(string)
+		return decodeCharset(value.(string))
 	case parser.Float64:
 		return value.(float64)
 	case parser.Int64:
@@ -223,9 +228,20 @@ func pgConvert(t parser.Kind, value interface{}) interface{} {
 	case parser.Bool:
 		return value.(bool)
 	case parser.String:
-		return value.(string)
+		return decodeCharset(value.(string))
 	}
-	return value.(string)
+	return decodeCharset(value.(string))
+}
+
+func decodeCharset(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	utf, err := isoDecoder.String(s)
+	if err == nil {
+		return utf
+	}
+	return unidecode.Unidecode(s)
 }
 
 func init() {
