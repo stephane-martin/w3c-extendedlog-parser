@@ -10,10 +10,35 @@ import (
 
 // FileHeader represents the header of a W3C Extended Log Format file.
 type FileHeader struct {
-	FieldNames []string
+	fieldNames []string
 	Software   string
 	Remark     string
 	Meta       map[string]string
+}
+
+func (h *FileHeader) HasField(name string) bool {
+	for _, fname := range h.fieldNames {
+		if fname == name {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *FileHeader) HasGmtTime() bool {
+	return h.HasField("gmttime")
+}
+
+// FieldNames returns a copy of the field names
+func (h *FileHeader) FieldNames() (ret []string) {
+	if len(h.fieldNames) == 0 {
+		return nil
+	}
+	ret = make([]string, 0, len(h.fieldNames))
+	for _, name := range h.fieldNames {
+		ret = append(ret, name)
+	}
+	return ret
 }
 
 func parseFileHeader(reader *bufio.Reader) (*FileHeader, error) {
@@ -43,11 +68,11 @@ func parseFileHeader(reader *bufio.Reader) (*FileHeader, error) {
 				case "remark":
 					h.Remark = value
 				case "fields":
-					h.FieldNames = make([]string, 0)
+					h.fieldNames = make([]string, 0)
 					for _, f := range strings.Split(value, " ") {
 						f = strings.ToLower(strings.TrimSpace(f))
 						if len(f) > 0 {
-							h.FieldNames = append(h.FieldNames, f)
+							h.fieldNames = append(h.fieldNames, f)
 						}
 					}
 				default:
@@ -94,7 +119,7 @@ func (p *FileParser) ParseHeader() error {
 
 // SetFieldNames can be used to set the Field names manually, instead of parsing the header file.
 func (p *FileParser) SetFieldNames(fieldNames []string) *FileParser {
-	p.FileHeader.FieldNames = fieldNames
+	p.FileHeader.fieldNames = fieldNames
 	return p
 }
 
@@ -105,7 +130,7 @@ func (p *FileParser) Next() (*Line, error) {
 
 // NextTo returns the next parsed log line, reusing the given line.
 func (p *FileParser) NextTo(l *Line) (*Line, error) {
-	if len(p.FileHeader.FieldNames) == 0 {
+	if len(p.FileHeader.fieldNames) == 0 {
 		return nil, errors.New("No field names")
 	}
 	var name string
@@ -113,16 +138,16 @@ func (p *FileParser) NextTo(l *Line) (*Line, error) {
 	if p.scanner.Scan() {
 		if l == nil {
 			// allocate a new line
-			l = NewLine(p.FieldNames)
+			l = NewLine(p.FileHeader.fieldNames)
 		} else {
 			// reuse the given line, but make sure to clean it before usage
-			l.Reset(p.FieldNames)
+			l.Reset(p.FileHeader.fieldNames)
 		}
 		fields := p.scanner.Strings()
-		if len(fields) != len(p.FieldNames) {
-			return nil, fmt.Errorf("Wrong number of fields: expected = %d, actual = %d", len(p.FieldNames), len(fields))
+		if len(fields) != len(p.FileHeader.fieldNames) {
+			return nil, fmt.Errorf("Wrong number of fields: expected = %d, actual = %d", len(p.FileHeader.fieldNames), len(fields))
 		}
-		for i, name = range p.FieldNames {
+		for i, name = range p.FileHeader.fieldNames {
 			l.add(name, fields[i])
 		}
 		return l, nil

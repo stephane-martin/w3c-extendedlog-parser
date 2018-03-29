@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -39,91 +40,107 @@ var push2pgCmd = &cobra.Command{
 		conn, err := pgx.Connect(config)
 		fatal(err)
 		defer conn.Close()
+		uploadFilesPG(fnames, conn)
+	},
+}
 
-		rows := make([][]interface{}, 0, 1000)
-		var l *parser.Line
-		var row []interface{}
-		var name string
-		var val interface{}
-
-		for _, fname := range fnames {
-			rows = rows[:0]
-			fname = strings.TrimSpace(fname)
-			f, err := os.Open(fname)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
-				continue
-			}
-			defer f.Close()
-
-			p := parser.NewFileParser(f)
-			err = p.ParseHeader()
-			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error building parser:", err)
-				continue
-			}
-			nbFields := len(p.FieldNames)
-
-			columnNames := make([]string, 0, nbFields)
-			types := make(map[string]parser.Kind, nbFields)
-			for _, name = range p.FieldNames {
-				// make sure column names are PG compatible
-				columnNames = append(columnNames, pgKey(name))
-				// store the data type for each column
-				types[name] = parser.GuessType(name)
-			}
-
-			rowPool := &sync.Pool{
-				New: func() interface{} {
-					return make([]interface{}, 0, nbFields)
-				},
-			}
-
-			for {
-				row = rowPool.Get().([]interface{})[:0]
-				l, err = p.NextTo(l)
-				if l == nil || err != nil {
-					break
-				}
-				for _, name = range l.Names() {
-					val = l.Get(name)
-					if val == nil {
-						// append default value for that type
-						row = append(row, pgDefaultVal(types[name]))
-						continue
-					}
-					// append converted type
-					row = append(row, pgConvert(types[name], val))
-				}
-				rows = append(rows, row)
-				if len(rows) == 1000 {
-					_, err = conn.CopyFrom(
-						pgx.Identifier{tableName},
-						columnNames,
-						pgx.CopyFromRows(rows),
-					)
-					fatal(err)
-					for _, row = range rows {
-						rowPool.Put(row)
-					}
-					rows = rows[:0]
-				}
-			}
-			if len(rows) > 0 {
-				_, err = conn.CopyFrom(
-					pgx.Identifier{tableName},
-					columnNames,
-					pgx.CopyFromRows(rows),
-				)
-				fatal(err)
-				for _, row = range rows {
-					rowPool.Put(row)
-				}
-				rows = rows[:0]
-			}
+func uploadFilesPG(fnames []string, conn *pgx.Conn) {
+	for _, fname := range fnames {
+		fname = strings.TrimSpace(fname)
+		f, err := os.Open(fname)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
+			continue
 		}
 
-	},
+		err = uploadPG(f, conn)
+		f.Close()
+		if err == nil {
+			fmt.Fprintln(os.Stderr, "Successfully uploaded:", fname)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)
+		}
+	}
+}
+
+func uploadPG(f io.Reader, conn *pgx.Conn) error {
+	rows := make([][]interface{}, 0, 1000)
+	var row []interface{}
+	var l *parser.Line
+
+	p := parser.NewFileParser(f)
+	err := p.ParseHeader()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error building parser:", err)
+		return err
+	}
+	fieldNames = p.FieldNames()
+	if !p.HasGmtTime() {
+		fieldNames = append([]string{"gmttime"}, fieldNames...)
+	}
+	nbFields := len(fieldNames)
+
+	columnNames := make([]string, 0, nbFields)
+	types := make(map[string]parser.Kind, nbFields)
+	for _, name := range fieldNames {
+		// make sure column names are PG compatible
+		columnNames = append(columnNames, pgKey(name))
+		// store the data type for each column
+		types[name] = parser.GuessType(name)
+	}
+
+	rowPool := &sync.Pool{
+		New: func() interface{} {
+			return make([]interface{}, 0, nbFields)
+		},
+	}
+
+	txn, err := conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer txn.Rollback()
+	for {
+		row = rowPool.Get().([]interface{})[:0]
+		l, err = p.NextTo(l)
+		if l == nil || err != nil {
+			break
+		}
+		for _, name := range fieldNames {
+			// append converted type
+			row = append(row, pgConvert(types[name], l.Get(name)))
+		}
+		rows = append(rows, row)
+		if len(rows) == 1000 {
+			_, err = txn.CopyFrom(
+				pgx.Identifier{tableName},
+				columnNames,
+				pgx.CopyFromRows(rows),
+			)
+			if err != nil {
+				return err
+			}
+			for _, row = range rows {
+				rowPool.Put(row)
+			}
+			rows = rows[:0]
+		}
+	}
+	if len(rows) > 0 {
+		_, err = txn.CopyFrom(
+			pgx.Identifier{tableName},
+			columnNames,
+			pgx.CopyFromRows(rows),
+		)
+		if err != nil {
+			return err
+		}
+		for _, row = range rows {
+			rowPool.Put(row)
+		}
+		rows = rows[:0]
+	}
+	return txn.Commit()
 }
 
 // MyMyTime encapsulates parser.Time so that it can be serialized to PG.
@@ -135,7 +152,10 @@ type MyMyTime struct {
 }
 
 // EncodeBinary implements the MarshalBinary interface.
-func (src MyMyTime) EncodeBinary(ci *pgtype.ConnInfo, buf []byte) ([]byte, error) {
+func (src *MyMyTime) EncodeBinary(ci *pgtype.ConnInfo, buf []byte) ([]byte, error) {
+	if src == nil {
+		return nil, nil
+	}
 	return pgio.AppendInt64(
 		buf,
 		(int64(src.Hour)*usecsPerHour)+(int64(src.Minute)*usecsPerMinute)+(int64(src.Second)*usecsPerSec)+(int64(src.Nanosecond)/nanosecsPerUsec),
@@ -145,21 +165,22 @@ func (src MyMyTime) EncodeBinary(ci *pgtype.ConnInfo, buf []byte) ([]byte, error
 func pgDefaultVal(t parser.Kind) interface{} {
 	switch t {
 	case parser.MyDate:
-		return &pgtype.Date{Status: pgtype.Present, Time: time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)}
+		return &pgtype.Date{Status: pgtype.Null}
 	case parser.MyIP:
-		return &pgtype.Inet{Status: pgtype.Present, IPNet: &net.IPNet{IP: net.IPv4(0, 0, 0, 0)}}
+		return &pgtype.Inet{Status: pgtype.Null}
 	case parser.MyTime:
-		return MyMyTime{Time: parser.Time{}}
+		var timePtr *MyMyTime
+		return timePtr
 	case parser.MyTimestamp:
-		return &pgtype.Timestamptz{Status: pgtype.Present, Time: time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)}
+		return &pgtype.Timestamptz{Status: pgtype.Null}
 	case parser.MyURI:
 		return ""
 	case parser.Float64:
-		return float64(0)
+		return &pgtype.Float8{Status: pgtype.Null}
 	case parser.Int64:
-		return int64(0)
+		return &pgtype.Int8{Status: pgtype.Null}
 	case parser.Bool:
-		return false
+		return &pgtype.Bool{Status: pgtype.Null}
 	case parser.String:
 		return ""
 	}
@@ -167,18 +188,32 @@ func pgDefaultVal(t parser.Kind) interface{} {
 }
 
 func pgConvert(t parser.Kind, value interface{}) interface{} {
+	if value == nil {
+		return pgDefaultVal(t)
+	}
 	switch t {
 	case parser.MyDate:
 		v := value.(parser.Date)
+		if v.IsZero() {
+			return pgDefaultVal(t)
+		}
 		return time.Date(v.Year, v.Month, v.Day, 0, 0, 0, 0, time.UTC)
 	case parser.MyIP:
 		inet := &pgtype.Inet{}
 		inet.Set(value.(net.IP))
 		return inet
 	case parser.MyTime:
-		return MyMyTime{Time: value.(parser.Time)}
+		v := value.(parser.Time)
+		if v.IsZero() {
+			return pgDefaultVal(t)
+		}
+		return &MyMyTime{Time: v}
 	case parser.MyTimestamp:
-		return &pgtype.Timestamptz{Status: pgtype.Present, Time: value.(time.Time)}
+		v := value.(time.Time)
+		if v.IsZero() {
+			return pgDefaultVal(t)
+		}
+		return &pgtype.Timestamptz{Status: pgtype.Present, Time: v}
 	case parser.MyURI:
 		return value.(string)
 	case parser.Float64:

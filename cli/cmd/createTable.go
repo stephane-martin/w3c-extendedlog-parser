@@ -12,6 +12,7 @@ import (
 )
 
 var tableName string
+var noIndex bool
 
 func pgKey(key string) string {
 	key = strings.Replace(key, "-", "_", -1)
@@ -42,7 +43,7 @@ var createTableCmd = &cobra.Command{
 			err = p.ParseHeader()
 			f.Close()
 			fatal(err)
-			fieldNames = p.FieldNames
+			fieldNames = p.FieldNames()
 		}
 		if len(fieldNames) == 0 {
 			fatal(errors.New("field names not found"))
@@ -53,29 +54,34 @@ var createTableCmd = &cobra.Command{
 		for _, name := range fieldNames {
 			switch parser.GuessType(name) {
 			case parser.MyDate:
-				columns[pgKey(name)] = "DATE DEFAULT '0001-01-01'"
+				columns[pgKey(name)] = "DATE NULL"
 			case parser.MyIP:
-				columns[pgKey(name)] = "INET DEFAULT '0.0.0.0'"
+				columns[pgKey(name)] = "INET NULL"
 			case parser.MyTime:
-				columns[pgKey(name)] = "TIME WITHOUT TIME ZONE DEFAULT '00:00:00'"
+				columns[pgKey(name)] = "TIME NULL"
 			case parser.MyTimestamp:
-				columns[pgKey(name)] = "TIMESTAMP WITH TIME ZONE DEFAULT '0001-01-01 00:00:00 -0:00'"
+				columns[pgKey(name)] = "TIMESTAMP WITH TIME ZONE NULL"
 			case parser.MyURI:
-				columns[pgKey(name)] = "TEXT DEFAULT ''"
+				columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
 			case parser.Float64:
-				columns[pgKey(name)] = "DOUBLE PRECISION DEFAULT 0"
+				columns[pgKey(name)] = "DOUBLE PRECISION NULL"
 			case parser.Int64:
-				columns[pgKey(name)] = "BIGINT DEFAULT 0"
+				columns[pgKey(name)] = "BIGINT NULL"
 			case parser.Bool:
-				columns[pgKey(name)] = "BOOLEAN DEFAULT FALSE"
+				columns[pgKey(name)] = "BOOLEAN NULL"
 			case parser.String:
-				columns[pgKey(name)] = "TEXT DEFAULT ''"
+				columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
 			default:
-				columns[pgKey(name)] = "TEXT DEFAULT ''"
+				columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
 			}
 		}
 
+		if columns["gmttime"] == "" {
+			fieldNames = append([]string{"gmttime"}, fieldNames...)
+			columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
+		}
 		fieldNames = append([]string{"id"}, fieldNames...)
+
 		createStmt := "CREATE TABLE %s (\n"
 		for _, name := range fieldNames {
 			createStmt += fmt.Sprintf("    %s %s,\n", pgKey(name), columns[pgKey(name)])
@@ -104,6 +110,43 @@ var createTableCmd = &cobra.Command{
 		_, err = conn.Exec(createStmt)
 		fatal(err)
 		fmt.Fprintf(os.Stderr, "table '%s' has been created\n", tableName)
+
+		if noIndex {
+			return
+		}
+
+		createIndexStmt := ""
+	Loop:
+		for _, name := range fieldNames {
+			switch parser.GuessType(name) {
+			case parser.MyDate, parser.MyIP, parser.MyTime, parser.MyTimestamp, parser.Float64, parser.Int64, parser.Bool:
+				createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s (%s);", tableName, pgKey(name))
+
+			case parser.String, parser.MyURI:
+				if name == "id" {
+					continue Loop
+				}
+				createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s ((lower(%s)));", tableName, pgKey(name))
+
+			default:
+				continue Loop
+			}
+			fmt.Fprintln(os.Stderr, createIndexStmt)
+			_, err = conn.Exec(createIndexStmt)
+			fatal(err)
+			fmt.Fprintf(os.Stderr, "Index has been created on %s\n", name)
+		}
+
+		for _, name := range fieldNames {
+			if name == "cs(user-agent)" {
+				createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s USING GIN (to_tsvector('english', %s));", tableName, pgKey(name))
+				fmt.Fprintln(os.Stderr, createIndexStmt)
+				_, err = conn.Exec(createIndexStmt)
+				fatal(err)
+				fmt.Fprintln(os.Stderr, "full text index has been created on cs(User-Agent)")
+			}
+		}
+
 	},
 }
 
@@ -113,4 +156,5 @@ func init() {
 	createTableCmd.Flags().StringVar(&fieldsLine, "fields", "", "specify the fields that will be present in the access logs")
 	createTableCmd.Flags().StringVar(&fname, "filename", "", "specify the log file from which to extract the fields")
 	createTableCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
+	createTableCmd.Flags().BoolVar(&noIndex, "noindex", false, "if set, do not create indices in pgsql")
 }

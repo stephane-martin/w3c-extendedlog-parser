@@ -75,10 +75,11 @@ var push2esCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "Error building parser:", err)
 				continue
 			}
+			fieldNames = p.FieldNames()
 
 			linePool := &sync.Pool{
 				New: func() interface{} {
-					return parser.NewLine(p.FieldNames)
+					return parser.NewLine(fieldNames)
 				},
 			}
 

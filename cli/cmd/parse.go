@@ -94,19 +94,19 @@ func doParse(in io.Reader, out io.Writer, doJSON bool, doCSV bool, printSuffix b
 	if err != nil {
 		return err
 	}
-
+	fieldNames = p.FieldNames()
 	if doCSV {
 		// print header line
 		if printSuffix {
 			fmt.Fprintln(out, strings.Join(
 				foreach(
-					foreach(p.FieldNames, suffixHeaders),
+					foreach(fieldNames, suffixHeaders),
 					sanitize,
 				),
 				",",
 			))
 		} else {
-			fmt.Fprintln(out, strings.Join(foreach(p.FieldNames, sanitize), ","))
+			fmt.Fprintln(out, strings.Join(foreach(fieldNames, sanitize), ","))
 		}
 	}
 	var l *parser.Line

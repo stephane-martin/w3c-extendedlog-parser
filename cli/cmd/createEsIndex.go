@@ -48,7 +48,7 @@ var createEsIndexCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(-1)
 			}
-			fieldNames = p.FieldNames
+			fieldNames = p.FieldNames()
 		}
 		if len(fieldNames) == 0 {
 			fmt.Fprintln(os.Stderr, "field names not found")

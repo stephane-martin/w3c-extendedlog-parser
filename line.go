@@ -70,6 +70,9 @@ func (l *Line) add(key string, value string) {
 }
 
 func (l *Line) Get(key string) interface{} {
+	if key == "gmttime" {
+		return l.GetTime()
+	}
 	return l.fields[key]
 }
 

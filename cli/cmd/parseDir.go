@@ -31,7 +31,7 @@ var parseDirCmd = &cobra.Command{
 		fatal(err)
 		curdir, err = filepath.Abs(curdir)
 		fatal(err)
-		input, err = filepath.Abs(filepath.Join(curdir, input))
+		input, err = filepath.Abs(input)
 		fatal(err)
 		if len(output) > 0 {
 			outputInfos, err := os.Stat(output)
@@ -47,26 +47,7 @@ var parseDirCmd = &cobra.Command{
 			fatal(err)
 		}
 
-		inputFiles := make([]string, 0)
-		if len(extension) > 0 {
-			extension = "." + extension
-		}
-		err = filepath.Walk(input, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if info.IsDir() {
-				return nil
-			}
-			if info.Mode().IsRegular() && (len(extension) == 0 || filepath.Ext(path) == extension) {
-				path, err = filepath.Abs(path)
-				if err != nil {
-					return err
-				}
-				inputFiles = append(inputFiles, path)
-			}
-			return nil
-		})
+		inputFiles, err := findFiles(input, extension)
 		fatal(err)
 
 		if len(inputFiles) == 0 {
@@ -147,4 +128,31 @@ func init() {
 	parseDirCmd.Flags().BoolVar(&jsonExport, "json", false, "print the logs as JSON")
 	parseDirCmd.Flags().BoolVar(&csvExport, "csv", false, "print the logs as CSV")
 	parseDirCmd.Flags().BoolVar(&suffix, "suffix", false, "when exporting to CSV, suffix the field names with data type")
+}
+
+func findFiles(inputDir string, extension string) (inputFiles []string, err error) {
+	inputFiles = make([]string, 0)
+	if len(extension) > 0 {
+		extension = "." + extension
+	}
+	err = filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if info.Mode().IsRegular() && (len(extension) == 0 || filepath.Ext(path) == extension) {
+			path, err = filepath.Abs(path)
+			if err != nil {
+				return err
+			}
+			inputFiles = append(inputFiles, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return inputFiles, nil
 }
