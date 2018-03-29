@@ -57,3 +57,4 @@ func decodeURI(s string) interface{} {
 	}
 	return uri
 }
+

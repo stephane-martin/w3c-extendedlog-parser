@@ -126,7 +126,12 @@ var createTableCmd = &cobra.Command{
 				if name == "id" {
 					continue Loop
 				}
-				createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s ((lower(%s)));", tableName, pgKey(name))
+				if name == "cs-uri-query" {
+					// don't create a btree index, as the query field might be longer than the maximum allowed size for btree
+					createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s USING HASH (%s);", tableName, pgKey(name))
+				} else {
+					createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s ((lower(%s)));", tableName, pgKey(name))
+				}
 
 			default:
 				continue Loop
