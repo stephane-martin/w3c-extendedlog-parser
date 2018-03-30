@@ -119,19 +119,20 @@ var createTableCmd = &cobra.Command{
 	Loop:
 		for _, name := range fieldNames {
 			switch parser.GuessType(name) {
-			case parser.MyDate, parser.MyIP, parser.MyTime, parser.MyTimestamp, parser.Float64, parser.Int64, parser.Bool:
+			case parser.MyDate, parser.MyTime, parser.MyTimestamp:
+				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING BRIN (%s);", pgKey(name), tableName, pgKey(name))
+
+			case parser.MyIP:
+				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING GIST (%s inet_ops);", pgKey(name), tableName, pgKey(name))
+
+			case parser.Float64, parser.Int64, parser.Bool:
 				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s (%s);", pgKey(name), tableName, pgKey(name))
 
 			case parser.String, parser.MyURI:
 				if name == "id" {
 					continue Loop
 				}
-				if name == "cs-uri-query" || name == "cs(referer)" {
-					// don't create a btree index, as the query field might be longer than the maximum allowed size for btree
-					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING HASH (%s);", pgKey(name), tableName, pgKey(name))
-				} else {
-					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s ((lower(%s)));", pgKey(name), tableName, pgKey(name))
-				}
+				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING HASH (%s);", pgKey(name), tableName, pgKey(name))
 
 			default:
 				continue Loop
