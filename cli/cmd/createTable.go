@@ -132,7 +132,12 @@ var createTableCmd = &cobra.Command{
 				if name == "id" {
 					continue Loop
 				}
-				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING HASH (%s);", pgKey(name), tableName, pgKey(name))
+				// only use hash index if we have too (large field content)
+				if name == "cs-uri-query" || name == "cs(referer)" {
+					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING HASH (%s);", pgKey(name), tableName, pgKey(name))
+				} else {
+					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s ((lower(%s)));", pgKey(name), tableName, pgKey(name))
+				}
 
 			default:
 				continue Loop

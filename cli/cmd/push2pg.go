@@ -145,7 +145,13 @@ func uploadPG(f io.Reader, conn *pgx.Conn) error {
 		}
 		rows = rows[:0]
 	}
-	return txn.Commit()
+	err = txn.Commit()
+	if err != nil {
+		return err
+	}
+	_, err = conn.Exec("VACUUM;")
+	return err
+
 }
 
 // MyMyTime encapsulates parser.Time so that it can be serialized to PG.
