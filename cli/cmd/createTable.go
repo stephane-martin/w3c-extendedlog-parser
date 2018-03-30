@@ -120,17 +120,17 @@ var createTableCmd = &cobra.Command{
 		for _, name := range fieldNames {
 			switch parser.GuessType(name) {
 			case parser.MyDate, parser.MyIP, parser.MyTime, parser.MyTimestamp, parser.Float64, parser.Int64, parser.Bool:
-				createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s (%s);", tableName, pgKey(name))
+				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s (%s);", pgKey(name), tableName, pgKey(name))
 
 			case parser.String, parser.MyURI:
 				if name == "id" {
 					continue Loop
 				}
-				if name == "cs-uri-query" {
+				if name == "cs-uri-query" || name == "cs(referer)" {
 					// don't create a btree index, as the query field might be longer than the maximum allowed size for btree
-					createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s USING HASH (%s);", tableName, pgKey(name))
+					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING HASH (%s);", pgKey(name), tableName, pgKey(name))
 				} else {
-					createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s ((lower(%s)));", tableName, pgKey(name))
+					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s ((lower(%s)));", pgKey(name), tableName, pgKey(name))
 				}
 
 			default:
@@ -144,7 +144,7 @@ var createTableCmd = &cobra.Command{
 
 		for _, name := range fieldNames {
 			if name == "cs(user-agent)" {
-				createIndexStmt = fmt.Sprintf("CREATE INDEX ON %s USING GIN (to_tsvector('english', %s));", tableName, pgKey(name))
+				createIndexStmt = fmt.Sprintf("CREATE INDEX full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));", tableName, pgKey(name))
 				fmt.Fprintln(os.Stderr, createIndexStmt)
 				_, err = conn.Exec(createIndexStmt)
 				fatal(err)
