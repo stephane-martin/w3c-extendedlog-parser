@@ -116,5 +116,4 @@ func init() {
 	push2esCmd.Flags().StringVar(&indexName, "index", "accesslogs", "Name of index to create")
 	push2esCmd.Flags().StringVar(&username, "username", "", "username for HTTP Basic Auth")
 	push2esCmd.Flags().StringVar(&password, "password", "", "password for HTTP Basic Auth")
-
 }

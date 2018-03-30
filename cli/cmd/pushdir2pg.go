@@ -16,6 +16,9 @@ var pushdir2pgCmd = &cobra.Command{
 	Use:   "pushdir2pg",
 	Short: "Parse all files in some directory and push events to pgsql",
 	Run: func(cmd *cobra.Command, args []string) {
+		if parallel == 0 {
+			parallel = 1
+		}
 		if len(input) == 0 {
 			fatal(errors.New("specify an input directory"))
 		}
@@ -45,11 +48,14 @@ var pushdir2pgCmd = &cobra.Command{
 		}
 		config, err := pgx.ParseConnectionString(dbURI)
 		fatal(err)
-		conn, err := pgx.Connect(config)
+		pool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
+			ConnConfig:     config,
+			MaxConnections: int(parallel),
+		})
 		fatal(err)
-		defer conn.Close()
+		defer pool.Close()
 
-		uploadFilesPG(inputFiles, conn)
+		uploadFilesPG(inputFiles, pool, uint(parallel))
 
 	},
 }
@@ -60,4 +66,5 @@ func init() {
 	pushdir2pgCmd.Flags().StringVar(&extension, "ext", "log", "only select input files with that extension")
 	pushdir2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	pushdir2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
+	pushdir2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
 }

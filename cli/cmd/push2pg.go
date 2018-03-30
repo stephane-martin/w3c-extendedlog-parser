@@ -27,12 +27,17 @@ const (
 	nanosecsPerUsec = 1000
 )
 
+var parallel uint8
+
 var isoDecoder = charmap.ISO8859_15.NewDecoder()
 
 var push2pgCmd = &cobra.Command{
 	Use:   "push2pg",
 	Short: "Parse accesslog files and push events to postgres",
 	Run: func(cmd *cobra.Command, args []string) {
+		if parallel == 0 {
+			parallel = 1
+		}
 		if len(fnames) == 0 {
 			fatal(errors.New("specify the files to be parsed"))
 		}
@@ -42,33 +47,59 @@ var push2pgCmd = &cobra.Command{
 		}
 		config, err := pgx.ParseConnectionString(dbURI)
 		fatal(err)
-		conn, err := pgx.Connect(config)
+		pool, err := pgx.NewConnPool(pgx.ConnPoolConfig{
+			ConnConfig:     config,
+			MaxConnections: int(parallel),
+		})
 		fatal(err)
-		defer conn.Close()
-		uploadFilesPG(fnames, conn)
+		defer pool.Close()
+		uploadFilesPG(fnames, pool, uint(parallel))
 	},
 }
 
-func uploadFilesPG(fnames []string, conn *pgx.Conn) {
-	for _, fname := range fnames {
-		fname = strings.TrimSpace(fname)
-		f, err := os.Open(fname)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
-			continue
-		}
+func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint) {
+	fnamesChan := make(chan string)
+	var wg sync.WaitGroup
 
-		err = uploadPG(f, conn)
-		f.Close()
-		if err == nil {
-			fmt.Fprintln(os.Stderr, "Successfully uploaded:", fname)
-		} else {
-			fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)
-		}
+	for i := uint(0); i < nbInjectors; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				fname, ok := <-fnamesChan
+				if !ok {
+					return
+				}
+				uploadFilePG(fname, pool)
+			}
+		}()
+	}
+
+	for _, fname := range fnames {
+		fnamesChan <- fname
+	}
+	close(fnamesChan)
+	wg.Wait()
+}
+
+func uploadFilePG(fname string, pool *pgx.ConnPool) {
+	fname = strings.TrimSpace(fname)
+	f, err := os.Open(fname)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
+		return
+	}
+
+	err = uploadPG(f, pool)
+	f.Close()
+	if err == nil {
+		fmt.Fprintln(os.Stderr, "Successfully uploaded:", fname)
+	} else {
+		fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)
 	}
 }
 
-func uploadPG(f io.Reader, conn *pgx.Conn) error {
+func uploadPG(f io.Reader, connPool *pgx.ConnPool) error {
 	rows := make([][]interface{}, 0, 1000)
 	var row []interface{}
 	var l *parser.Line
@@ -100,11 +131,9 @@ func uploadPG(f io.Reader, conn *pgx.Conn) error {
 		},
 	}
 
-	txn, err := conn.Begin()
 	if err != nil {
 		return err
 	}
-	defer txn.Rollback()
 	for {
 		row = rowPool.Get().([]interface{})[:0]
 		l, err = p.NextTo(l)
@@ -117,7 +146,7 @@ func uploadPG(f io.Reader, conn *pgx.Conn) error {
 		}
 		rows = append(rows, row)
 		if len(rows) == 1000 {
-			_, err = txn.CopyFrom(
+			_, err = connPool.CopyFrom(
 				pgx.Identifier{tableName},
 				columnNames,
 				pgx.CopyFromRows(rows),
@@ -132,7 +161,7 @@ func uploadPG(f io.Reader, conn *pgx.Conn) error {
 		}
 	}
 	if len(rows) > 0 {
-		_, err = txn.CopyFrom(
+		_, err = connPool.CopyFrom(
 			pgx.Identifier{tableName},
 			columnNames,
 			pgx.CopyFromRows(rows),
@@ -145,11 +174,7 @@ func uploadPG(f io.Reader, conn *pgx.Conn) error {
 		}
 		rows = rows[:0]
 	}
-	err = txn.Commit()
-	if err != nil {
-		return err
-	}
-	_, err = conn.Exec("VACUUM;")
+	_, err = connPool.Exec("VACUUM;")
 	return err
 
 }
@@ -255,4 +280,5 @@ func init() {
 	push2pgCmd.Flags().StringArrayVar(&fnames, "filename", []string{}, "the files to parse")
 	push2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	push2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
+	push2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
 }
