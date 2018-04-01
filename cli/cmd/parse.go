@@ -11,7 +11,7 @@ import (
 	parser "github.com/stephane-martin/w3c-extendedlog-parser"
 )
 
-var fnames = make([]string, 0)
+var filenames = make([]string, 0)
 var jsonExport bool
 var csvExport bool
 var suffix bool
@@ -61,7 +61,7 @@ var parseCmd = &cobra.Command{
 	Use:   "parse",
 	Short: "Parse an access log file and print the lines it as JSON or CSV",
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(fnames) == 0 {
+		if len(filenames) == 0 {
 			fatal(errors.New("specify the files to be parsed"))
 		}
 		if jsonExport && csvExport {
@@ -71,7 +71,7 @@ var parseCmd = &cobra.Command{
 			jsonExport = true
 		}
 
-		for _, fname := range fnames {
+		for _, fname := range filenames {
 			fname = strings.TrimSpace(fname)
 			f, err := os.Open(fname)
 			if err != nil {
@@ -94,7 +94,7 @@ func doParse(in io.Reader, out io.Writer, doJSON bool, doCSV bool, printSuffix b
 	if err != nil {
 		return err
 	}
-	fieldNames = p.FieldNames()
+	fieldNames := p.FieldNames()
 	if doCSV {
 		// print header line
 		if printSuffix {
@@ -128,7 +128,7 @@ func doParse(in io.Reader, out io.Writer, doJSON bool, doCSV bool, printSuffix b
 
 func init() {
 	rootCmd.AddCommand(parseCmd)
-	parseCmd.Flags().StringArrayVar(&fnames, "filename", []string{}, "the files to parse")
+	parseCmd.Flags().StringArrayVar(&filenames, "filename", []string{}, "the files to parse")
 	parseCmd.Flags().BoolVar(&jsonExport, "json", false, "print the logs as JSON")
 	parseCmd.Flags().BoolVar(&csvExport, "csv", false, "print the logs as CSV")
 	parseCmd.Flags().BoolVar(&suffix, "suffix", false, "when exporting to CSV, suffix the field names with data type")

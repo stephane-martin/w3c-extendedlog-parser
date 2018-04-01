@@ -199,7 +199,7 @@ func ConvertValue(fieldName string, value string) interface{} {
 		if err != nil {
 			return nil
 		}
-		return t.UTC()
+		return t
 	case "timestamp", "x-timestamp-unix", "x-timestamp-unix-utc":
 		if value == "" {
 			return nil

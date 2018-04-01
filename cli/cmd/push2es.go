@@ -19,7 +19,7 @@ var push2esCmd = &cobra.Command{
 	Use:   "push2es",
 	Short: "Parse accesslog files and push events to Elasticsearch",
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(fnames) == 0 {
+		if len(filenames) == 0 {
 			fatal(errors.New("specify the files to be parsed"))
 		}
 
@@ -59,7 +59,7 @@ var push2esCmd = &cobra.Command{
 		lines := make([]*parser.Line, 0, 1000)
 		var l *parser.Line
 
-		for _, fname := range fnames {
+		for _, fname := range filenames {
 			lines = lines[:0]
 			fname = strings.TrimSpace(fname)
 			f, err := os.Open(fname)
@@ -75,7 +75,7 @@ var push2esCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, "Error building parser:", err)
 				continue
 			}
-			fieldNames = p.FieldNames()
+			fieldNames := p.FieldNames()
 
 			linePool := &sync.Pool{
 				New: func() interface{} {
@@ -111,7 +111,7 @@ var push2esCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(push2esCmd)
-	push2esCmd.Flags().StringArrayVar(&fnames, "filename", []string{}, "the files to parse")
+	push2esCmd.Flags().StringArrayVar(&filenames, "filename", []string{}, "the files to parse")
 	push2esCmd.Flags().StringVar(&esURL, "url", "http://127.0.0.1:9200", "Elasticsearch connection URL")
 	push2esCmd.Flags().StringVar(&indexName, "index", "accesslogs", "Name of index to create")
 	push2esCmd.Flags().StringVar(&username, "username", "", "username for HTTP Basic Auth")

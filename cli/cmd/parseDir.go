@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/spf13/cobra"
 )
@@ -154,5 +155,6 @@ func findFiles(inputDir string, extension string) (inputFiles []string, err erro
 	if err != nil {
 		return nil, err
 	}
+	sort.Strings(inputFiles)
 	return inputFiles, nil
 }

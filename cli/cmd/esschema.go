@@ -12,8 +12,7 @@ import (
 )
 
 var fieldsLine string
-var fieldNames []string
-var fname string
+var filename string
 
 var shards uint
 var replicas uint
@@ -24,20 +23,21 @@ var esschemaCmd = &cobra.Command{
 	Use:   "esschema",
 	Short: "Prints an Elasticsearch mapping that can store access logs",
 	Run: func(cmd *cobra.Command, args []string) {
+		var fieldsNames []string
 		fieldsLine = strings.TrimSpace(fieldsLine)
-		fname = strings.TrimSpace(fname)
-		if len(fieldsLine) == 0 && len(fname) == 0 {
+		filename = strings.TrimSpace(filename)
+		if len(fieldsLine) == 0 && len(filename) == 0 {
 			fmt.Fprintln(os.Stderr, "Please specify fields")
 			os.Exit(-1)
 		}
-		if len(fieldsLine) != 0 && len(fname) != 0 {
+		if len(fieldsLine) != 0 && len(filename) != 0 {
 			fmt.Fprintln(os.Stderr, "--fields and --filename options are exclusive")
 			os.Exit(-1)
 		}
 		if len(fieldsLine) > 0 {
-			fieldNames = strings.Split(fieldsLine, " ")
+			fieldsNames = strings.Split(fieldsLine, " ")
 		} else {
-			f, err := os.Open(fname)
+			f, err := os.Open(filename)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(-1)
@@ -49,13 +49,13 @@ var esschemaCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(-1)
 			}
-			fieldNames = p.FieldNames()
+			fieldsNames = p.FieldNames()
 		}
-		if len(fieldNames) == 0 {
+		if len(fieldsNames) == 0 {
 			fmt.Fprintln(os.Stderr, "field names not found")
 			os.Exit(-1)
 		}
-		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldNames)
+		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldsNames)
 		b, err := json.MarshalIndent(opts, "", "  ")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -68,7 +68,7 @@ var esschemaCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(esschemaCmd)
 	esschemaCmd.Flags().StringVar(&fieldsLine, "fields", "", "specify the fields that will be present in the access logs")
-	esschemaCmd.Flags().StringVar(&fname, "filename", "", "specify the log file from which to extract the fields")
+	esschemaCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
 	esschemaCmd.Flags().UintVar(&shards, "shards", 1, "number of shards for the index")
 	esschemaCmd.Flags().UintVar(&replicas, "replicas", 0, "number of replicas for the index")
 	esschemaCmd.Flags().BoolVar(&check, "check", false, "whether to check the index on startup")

@@ -25,8 +25,9 @@ var createTableCmd = &cobra.Command{
 	Use:   "create-table",
 	Short: "Create a table in postgres with an adequate schema to store access logs",
 	Run: func(cmd *cobra.Command, args []string) {
+		var fieldsNames []string
 		fieldsLine = strings.TrimSpace(fieldsLine)
-		fname = strings.TrimSpace(fname)
+		fname := strings.TrimSpace(filename)
 
 		if len(fieldsLine) == 0 && len(fname) == 0 {
 			fatal(errors.New("Specify fields with --filename or --fields"))
@@ -35,7 +36,7 @@ var createTableCmd = &cobra.Command{
 			fatal(errors.New("--fields and --filename options are exclusive"))
 		}
 		if len(fieldsLine) > 0 {
-			fieldNames = strings.Split(fieldsLine, " ")
+			fieldsNames = strings.Split(fieldsLine, " ")
 		} else {
 			f, err := os.Open(fname)
 			fatal(err)
@@ -43,15 +44,15 @@ var createTableCmd = &cobra.Command{
 			err = p.ParseHeader()
 			f.Close()
 			fatal(err)
-			fieldNames = p.FieldNames()
+			fieldsNames = p.FieldNames()
 		}
-		if len(fieldNames) == 0 {
+		if len(fieldsNames) == 0 {
 			fatal(errors.New("field names not found"))
 		}
 
-		columns := make(map[string]string, len(fieldNames)+1)
+		columns := make(map[string]string, len(fieldsNames)+1)
 		columns["id"] = "BIGSERIAL PRIMARY KEY"
-		for _, name := range fieldNames {
+		for _, name := range fieldsNames {
 			switch parser.GuessType(name) {
 			case parser.MyDate:
 				columns[pgKey(name)] = "DATE NULL"
@@ -77,13 +78,13 @@ var createTableCmd = &cobra.Command{
 		}
 
 		if columns["gmttime"] == "" {
-			fieldNames = append([]string{"gmttime"}, fieldNames...)
+			fieldsNames = append([]string{"gmttime"}, fieldsNames...)
 			columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
 		}
-		fieldNames = append([]string{"id"}, fieldNames...)
+		fieldsNames = append([]string{"id"}, fieldsNames...)
 
 		createStmt := "CREATE TABLE %s (\n"
-		for _, name := range fieldNames {
+		for _, name := range fieldsNames {
 			createStmt += fmt.Sprintf("    %s %s,\n", pgKey(name), columns[pgKey(name)])
 		}
 		// remove last ,
@@ -117,7 +118,7 @@ var createTableCmd = &cobra.Command{
 
 		createIndexStmt := ""
 	Loop:
-		for _, name := range fieldNames {
+		for _, name := range fieldsNames {
 			switch parser.GuessType(name) {
 			case parser.MyDate, parser.MyTime, parser.MyTimestamp:
 				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING BRIN (%s);", pgKey(name), tableName, pgKey(name))
@@ -130,15 +131,18 @@ var createTableCmd = &cobra.Command{
 
 			case parser.String, parser.MyURI:
 				if name == "id" {
+					// primary key
 					continue Loop
 				}
-				// only use hash index if we have too (large field content)
 				if name == "cs-uri-query" || name == "cs(referer)" {
-					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING HASH (%s);", pgKey(name), tableName, pgKey(name))
-				} else {
-					createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s ((lower(%s)));", pgKey(name), tableName, pgKey(name))
+					// fields too large for a BTREE index
+					continue Loop
 				}
-
+				if name == "x-virus-id" || name == "x-bluecoat-application-name" || name == "x-bluecoat-application-operation" {
+					// fields not so interesting
+					continue Loop
+				}
+				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s ((lower(%s)));", pgKey(name), tableName, pgKey(name))
 			default:
 				continue Loop
 			}
@@ -148,7 +152,7 @@ var createTableCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "Index has been created on %s\n", name)
 		}
 
-		for _, name := range fieldNames {
+		for _, name := range fieldsNames {
 			if name == "cs(user-agent)" {
 				createIndexStmt = fmt.Sprintf("CREATE INDEX full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));", tableName, pgKey(name))
 				fmt.Fprintln(os.Stderr, createIndexStmt)
@@ -165,7 +169,7 @@ func init() {
 	rootCmd.AddCommand(createTableCmd)
 	createTableCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of table to be created in pgsql")
 	createTableCmd.Flags().StringVar(&fieldsLine, "fields", "", "specify the fields that will be present in the access logs")
-	createTableCmd.Flags().StringVar(&fname, "filename", "", "specify the log file from which to extract the fields")
+	createTableCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
 	createTableCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	createTableCmd.Flags().BoolVar(&noIndex, "noindex", false, "if set, do not create indices in pgsql")
 }

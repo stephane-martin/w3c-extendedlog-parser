@@ -38,7 +38,7 @@ var push2pgCmd = &cobra.Command{
 		if parallel == 0 {
 			parallel = 1
 		}
-		if len(fnames) == 0 {
+		if len(filenames) == 0 {
 			fatal(errors.New("specify the files to be parsed"))
 		}
 		dbURI = strings.TrimSpace(dbURI)
@@ -53,7 +53,7 @@ var push2pgCmd = &cobra.Command{
 		})
 		fatal(err)
 		defer pool.Close()
-		uploadFilesPG(fnames, pool, uint(parallel))
+		uploadFilesPG(filenames, pool, uint(parallel))
 	},
 }
 
@@ -89,41 +89,50 @@ func uploadFilePG(fname string, pool *pgx.ConnPool) {
 		fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
 		return
 	}
-
+	
+	fmt.Fprintln(os.Stderr, "Uploading:", fname)
+	start := time.Now()
 	err = uploadPG(f, pool)
+	duration := time.Now().Sub(start)
 	f.Close()
 	if err == nil {
-		fmt.Fprintln(os.Stderr, "Successfully uploaded:", fname)
+		fmt.Fprintf(os.Stderr, "Successfully uploaded: %s (%f secs)\n", fname, duration.Seconds())
 	} else {
 		fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)
 	}
 }
 
 func uploadPG(f io.Reader, connPool *pgx.ConnPool) error {
-	rows := make([][]interface{}, 0, 1000)
-	var row []interface{}
-	var l *parser.Line
-
 	p := parser.NewFileParser(f)
 	err := p.ParseHeader()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error building parser:", err)
 		return err
 	}
-	fieldNames = p.FieldNames()
+	curFieldNames := p.FieldNames()
 	if !p.HasGmtTime() {
-		fieldNames = append([]string{"gmttime"}, fieldNames...)
+		curFieldNames = append([]string{"gmttime"}, curFieldNames...)
 	}
-	nbFields := len(fieldNames)
+	nbFields := len(curFieldNames)
 
 	columnNames := make([]string, 0, nbFields)
 	types := make(map[string]parser.Kind, nbFields)
-	for _, name := range fieldNames {
+	for _, name := range curFieldNames {
 		// make sure column names are PG compatible
 		columnNames = append(columnNames, pgKey(name))
 		// store the data type for each column
 		types[name] = parser.GuessType(name)
 	}
+
+	conn, err := connPool.Acquire()
+	if err != nil {
+		return err
+	}
+	defer connPool.Release(conn)
+
+	rows := make([][]interface{}, 0, 1000)
+	var row []interface{}
+	var line *parser.Line
 
 	rowPool := &sync.Pool{
 		New: func() interface{} {
@@ -131,50 +140,59 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool) error {
 		},
 	}
 
-	if err != nil {
-		return err
+	getRow := func() (r []interface{}) {
+		r = rowPool.Get().([]interface{})
+		r = r[:0]
+		return r
 	}
-	for {
-		row = rowPool.Get().([]interface{})[:0]
-		l, err = p.NextTo(l)
-		if l == nil || err != nil {
-			break
-		}
-		for _, name := range fieldNames {
-			// append converted type
-			row = append(row, pgConvert(types[name], l.Get(name)))
-		}
-		rows = append(rows, row)
-		if len(rows) == 1000 {
-			_, err = connPool.CopyFrom(
-				pgx.Identifier{tableName},
-				columnNames,
-				pgx.CopyFromRows(rows),
-			)
-			if err != nil {
-				return err
+
+	uploadRows := func(rows *[][]interface{}) error {
+		var r []interface{}
+		for _, r = range *rows {
+			if len(columnNames) != len(r) {
+				return fmt.Errorf("wtf! Expected fields: %d. Actual fields: %d.", len(columnNames), len(r))
 			}
-			for _, row = range rows {
-				rowPool.Put(row)
-			}
-			rows = rows[:0]
 		}
-	}
-	if len(rows) > 0 {
-		_, err = connPool.CopyFrom(
+		_, err = conn.CopyFrom(
 			pgx.Identifier{tableName},
 			columnNames,
-			pgx.CopyFromRows(rows),
+			pgx.CopyFromRows(*rows),
 		)
 		if err != nil {
 			return err
 		}
-		for _, row = range rows {
+		for _, row = range *rows {
 			rowPool.Put(row)
 		}
-		rows = rows[:0]
+		*rows = (*rows)[:0]
+		return nil
 	}
-	_, err = connPool.Exec("VACUUM;")
+
+	for {
+		row = getRow()
+		line, err = p.NextTo(line)
+		if line == nil || err != nil {
+			break
+		}
+		for _, name := range curFieldNames {
+			// append converted type
+			row = append(row, pgConvert(types[name], line.Get(name)))
+		}
+		rows = append(rows, row)
+		if len(rows) == 1000 {
+			err = uploadRows(&rows)
+			if err != nil {
+				return err	
+			}
+		}
+	}
+	if len(rows) > 0 {
+		err = uploadRows(&rows)
+		if err != nil {
+			return err
+		}
+	}
+	_, err = conn.Exec("VACUUM;")
 	return err
 
 }
@@ -277,7 +295,7 @@ func decodeCharset(s string) string {
 
 func init() {
 	rootCmd.AddCommand(push2pgCmd)
-	push2pgCmd.Flags().StringArrayVar(&fnames, "filename", []string{}, "the files to parse")
+	push2pgCmd.Flags().StringArrayVar(&filenames, "filename", []string{}, "the files to parse")
 	push2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	push2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	push2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")

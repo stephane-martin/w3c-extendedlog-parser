@@ -23,8 +23,9 @@ var createEsIndexCmd = &cobra.Command{
 	Use:   "create-es-index",
 	Short: "Create an index in Elasticsearch with adequate mapping",
 	Run: func(cmd *cobra.Command, args []string) {
+		var fieldsNames []string
 		fieldsLine = strings.TrimSpace(fieldsLine)
-		fname = strings.TrimSpace(fname)
+		fname := strings.TrimSpace(filename)
 		if len(fieldsLine) == 0 && len(fname) == 0 {
 			fmt.Fprintln(os.Stderr, "Please specify fields")
 			os.Exit(-1)
@@ -34,7 +35,7 @@ var createEsIndexCmd = &cobra.Command{
 			os.Exit(-1)
 		}
 		if len(fieldsLine) > 0 {
-			fieldNames = strings.Split(fieldsLine, " ")
+			fieldsNames = strings.Split(fieldsLine, " ")
 		} else {
 			f, err := os.Open(fname)
 			if err != nil {
@@ -48,14 +49,14 @@ var createEsIndexCmd = &cobra.Command{
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(-1)
 			}
-			fieldNames = p.FieldNames()
+			fieldsNames = p.FieldNames()
 		}
-		if len(fieldNames) == 0 {
+		if len(fieldsNames) == 0 {
 			fmt.Fprintln(os.Stderr, "field names not found")
 			os.Exit(-1)
 		}
 
-		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldNames)
+		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldsNames)
 		optionsBody, err := json.Marshal(opts)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -117,7 +118,7 @@ var createEsIndexCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(createEsIndexCmd)
 	createEsIndexCmd.Flags().StringVar(&fieldsLine, "fields", "", "specify the fields that will be present in the access logs")
-	createEsIndexCmd.Flags().StringVar(&fname, "filename", "", "specify the log file from which to extract the fields")
+	createEsIndexCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
 	createEsIndexCmd.Flags().UintVar(&shards, "shards", 1, "number of shards for the index")
 	createEsIndexCmd.Flags().UintVar(&replicas, "replicas", 0, "number of replicas for the index")
 	createEsIndexCmd.Flags().BoolVar(&check, "check", false, "whether to check the index on startup")
