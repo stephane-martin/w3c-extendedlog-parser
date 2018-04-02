@@ -28,7 +28,7 @@ const (
 )
 
 var parallel uint8
-var batchsize uint
+var batchsize int
 
 var isoDecoder = charmap.ISO8859_15.NewDecoder()
 
@@ -61,7 +61,7 @@ var push2pgCmd = &cobra.Command{
 	},
 }
 
-func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint, bsize uint) {
+func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint, bsize int) {
 	fnamesChan := make(chan string)
 	var wg sync.WaitGroup
 
@@ -86,7 +86,7 @@ func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint, bsize 
 	wg.Wait()
 }
 
-func uploadFilePG(fname string, pool *pgx.ConnPool, bsize uint) {
+func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 	fname = strings.TrimSpace(fname)
 	f, err := os.Open(fname)
 	if err != nil {
@@ -96,22 +96,107 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize uint) {
 
 	fmt.Fprintln(os.Stderr, "Uploading:", fname)
 	start := time.Now()
-	err = uploadPG(f, pool, bsize)
+	nbLines, err := uploadPG(f, pool, bsize)
 	duration := time.Now().Sub(start)
 	f.Close()
 	if err == nil {
-		fmt.Fprintf(os.Stderr, "Successfully uploaded: %s (%f secs)\n", fname, duration.Seconds())
+		fmt.Fprintf(
+			os.Stderr,
+			"Successfully uploaded: %s (%d lines, %f secs, %d lines/sec)\n",
+			fname, nbLines, duration.Seconds(), nbLines/int(duration.Seconds()),
+		)
 	} else {
 		fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)
 	}
 }
 
-func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize uint) error {
+type Row []interface{}
+
+func (r Row) AddField(field interface{}) error {
+	if len(r) < cap(r) {
+		_ = append(r, field)
+		return nil
+	}
+	return fmt.Errorf("too many fields (max %d)", cap(r))
+}
+
+type Rows struct {
+	pool     *sync.Pool
+	maxSize  int
+	nbFields int
+	rows     []Row
+}
+
+func RowFactory(maxSize int, nbFields int) *Rows {
+	r := Rows{
+		maxSize:  maxSize,
+		nbFields: nbFields,
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return Row(make([]interface{}, 0, nbFields))
+			},
+		},
+		rows: make([]Row, 0, maxSize),
+	}
+	return &r
+}
+
+func (r *Rows) GetRow() (row Row, full bool) {
+	if len(r.rows) < r.maxSize {
+		row = r.pool.Get().(Row)
+		row = row[:0]
+		r.rows = append(r.rows, row)
+		return row, false
+	}
+	return nil, true
+}
+
+func (r *Rows) GetSource() (s *Source, err error) {
+	var row Row
+	for _, row = range r.rows {
+		if len(row) != r.nbFields {
+			return nil, fmt.Errorf("wrong number of fields (expected %d, got %d)", r.nbFields, len(row))
+		}
+	}
+	return &Source{r: r}, nil
+}
+
+func (r *Rows) Clear() {
+	var row Row
+	for _, row = range r.rows {
+		r.pool.Put(row)
+	}
+	r.rows = r.rows[:0]
+}
+
+func (r *Rows) Len() int {
+	return len(r.rows)
+}
+
+type Source struct {
+	r   *Rows
+	idx int
+}
+
+func (s *Source) Next() bool {
+	s.idx++
+	return s.idx < s.r.Len()
+}
+
+func (s *Source) Values() ([]interface{}, error) {
+	return ([]interface{})(s.r.rows[s.idx]), nil
+}
+
+func (s *Source) Err() error {
+	return nil
+}
+
+func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err error) {
 	p := parser.NewFileParser(f)
-	err := p.ParseHeader()
+	err = p.ParseHeader()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error building parser:", err)
-		return err
+		return 0, err
 	}
 	curFieldNames := p.FieldNames()
 	if !p.HasGmtTime() {
@@ -130,75 +215,63 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize uint) error {
 
 	conn, err := connPool.Acquire()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer connPool.Release(conn)
 
-	rows := make([][]interface{}, 0, bsize)
-	var row []interface{}
-	var line *parser.Line
+	factory := RowFactory(bsize, nbFields)
 
-	rowPool := &sync.Pool{
-		New: func() interface{} {
-			return make([]interface{}, 0, nbFields)
-		},
-	}
-
-	getRow := func() (r []interface{}) {
-		r = rowPool.Get().([]interface{})
-		r = r[:0]
-		return r
-	}
-
-	uploadRows := func(rows *[][]interface{}) error {
-		var r []interface{}
-		for _, r = range *rows {
-			if len(columnNames) != len(r) {
-				return fmt.Errorf("wtf: expected fields: %d, actual fields: %d", len(columnNames), len(r))
-			}
+	uploadRows := func() error {
+		if factory.Len() == 0 {
+			return nil
 		}
-		_, err = conn.CopyFrom(
-			pgx.Identifier{tableName},
-			columnNames,
-			pgx.CopyFromRows(*rows),
-		)
+		s, err := factory.GetSource()
 		if err != nil {
 			return err
 		}
-		for _, row = range *rows {
-			rowPool.Put(row)
+		_, err = conn.CopyFrom(pgx.Identifier{tableName}, columnNames, s)
+		if err != nil {
+			return err
 		}
-		*rows = (*rows)[:0]
+		factory.Clear()
 		return nil
 	}
 
+	var full bool
+	var row Row
+	var line *parser.Line
+
 	for {
-		row = getRow()
+		row, full = factory.GetRow()
+		if full {
+			err = uploadRows()
+			if err != nil {
+				return 0, err
+			}
+			row, _ = factory.GetRow()
+		}
 		line, err = p.NextTo(line)
 		if line == nil || err != nil {
 			break
 		}
+		nbLines++
 		for _, name := range curFieldNames {
 			// append converted type
-			row = append(row, pgConvert(types[name], line.Get(name)))
-		}
-		rows = append(rows, row)
-		if len(rows) == int(bsize) {
-			err = uploadRows(&rows)
+			err = row.AddField(pgConvert(types[name], line.Get(name)))
 			if err != nil {
-				return err
+				return 0, err
 			}
 		}
 	}
-	if len(rows) > 0 {
-		err = uploadRows(&rows)
-		if err != nil {
-			return err
-		}
-	}
-	_, err = conn.Exec("VACUUM;")
-	return err
 
+	// push remaining lines
+	err = uploadRows()
+	if err != nil {
+		return 0, err
+	}
+
+	_, err = conn.Exec("VACUUM;")
+	return nbLines, err
 }
 
 // MyMyTime encapsulates parser.Time so that it can be serialized to PG.
@@ -303,5 +376,5 @@ func init() {
 	push2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	push2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	push2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
-	push2pgCmd.Flags().UintVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
+	push2pgCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
 }

@@ -70,5 +70,5 @@ func init() {
 	pushdir2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	pushdir2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	pushdir2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
-	pushdir2pgCmd.Flags().UintVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
+	pushdir2pgCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
 }
