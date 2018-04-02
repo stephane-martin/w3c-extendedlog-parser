@@ -19,6 +19,9 @@ var pushdir2pgCmd = &cobra.Command{
 		if parallel == 0 {
 			parallel = 1
 		}
+		if batchsize == 0 {
+			batchsize = 5000
+		}
 		if len(input) == 0 {
 			fatal(errors.New("specify an input directory"))
 		}
@@ -55,7 +58,7 @@ var pushdir2pgCmd = &cobra.Command{
 		fatal(err)
 		defer pool.Close()
 
-		uploadFilesPG(inputFiles, pool, uint(parallel))
+		uploadFilesPG(inputFiles, pool, uint(parallel), batchsize)
 
 	},
 }
@@ -67,4 +70,5 @@ func init() {
 	pushdir2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	pushdir2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	pushdir2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
+	pushdir2pgCmd.Flags().UintVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
 }
