@@ -112,7 +112,7 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 
 type Row []interface{}
 
-func (r Row) AddField(field interface{}) error {
+func (r *Row) AddField(field interface{}) error {
 	if len(r) < cap(r) {
 		_ = append(r, field)
 		return nil
