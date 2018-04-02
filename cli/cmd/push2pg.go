@@ -113,18 +113,18 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 type Row []interface{}
 
 func (r *Row) AddField(field interface{}) error {
-	if len(r) < cap(r) {
-		_ = append(r, field)
+	if len(*r) < cap(*r) {
+		*r = append(*r, field)
 		return nil
 	}
-	return fmt.Errorf("too many fields (max %d)", cap(r))
+	return fmt.Errorf("too many fields (max %d)", cap(*r))
 }
 
 type Rows struct {
 	pool     *sync.Pool
 	maxSize  int
 	nbFields int
-	rows     []Row
+	rows     []*Row
 }
 
 func RowFactory(maxSize int, nbFields int) *Rows {
@@ -136,35 +136,34 @@ func RowFactory(maxSize int, nbFields int) *Rows {
 				return Row(make([]interface{}, 0, nbFields))
 			},
 		},
-		rows: make([]Row, 0, maxSize),
+		rows: make([]*Row, 0, maxSize),
 	}
 	return &r
 }
 
-func (r *Rows) GetRow() (row Row, full bool) {
+func (r *Rows) GetRow() (*Row, bool) {
 	if len(r.rows) < r.maxSize {
-		row = r.pool.Get().(Row)
+		row := r.pool.Get().(Row)
 		row = row[:0]
-		r.rows = append(r.rows, row)
-		return row, false
+		r.rows = append(r.rows, &row)
+		return &row, false
 	}
 	return nil, true
 }
 
 func (r *Rows) GetSource() (s *Source, err error) {
-	var row Row
-	for _, row = range r.rows {
-		if len(row) != r.nbFields {
-			return nil, fmt.Errorf("wrong number of fields (expected %d, got %d)", r.nbFields, len(row))
+	for i, row := range r.rows {
+		if len(*row) != r.nbFields {
+			return nil, fmt.Errorf("wrong number of fields (for line %d, expected %d, got %d)", i, r.nbFields, len(*row))
 		}
 	}
 	return &Source{r: r}, nil
 }
 
 func (r *Rows) Clear() {
-	var row Row
+	var row *Row
 	for _, row = range r.rows {
-		r.pool.Put(row)
+		r.pool.Put(*row)
 	}
 	r.rows = r.rows[:0]
 }
@@ -184,7 +183,7 @@ func (s *Source) Next() bool {
 }
 
 func (s *Source) Values() ([]interface{}, error) {
-	return ([]interface{})(s.r.rows[s.idx]), nil
+	return ([]interface{})(*(s.r.rows[s.idx])), nil
 }
 
 func (s *Source) Err() error {
@@ -238,10 +237,15 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 	}
 
 	var full bool
-	var row Row
+	var row *Row
 	var line *parser.Line
 
 	for {
+		line, err = p.NextTo(line)
+		if line == nil || err != nil {
+			break
+		}
+
 		row, full = factory.GetRow()
 		if full {
 			err = uploadRows()
@@ -250,10 +254,7 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 			}
 			row, _ = factory.GetRow()
 		}
-		line, err = p.NextTo(line)
-		if line == nil || err != nil {
-			break
-		}
+
 		nbLines++
 		for _, name := range curFieldNames {
 			// append converted type
