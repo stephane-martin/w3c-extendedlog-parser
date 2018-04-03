@@ -59,6 +59,7 @@ var createTableCmd = &cobra.Command{
 		if len(fieldsNames) == 0 {
 			fatal(errors.New("field names not found"))
 		}
+		fieldsNames = append([]string{"id"}, fieldsNames...)
 		createStmt := ""
 		if len(parentPartitionKey) == 0 {
 			createStmt = buildCreateStmt(tableName, fieldsNames, partitionKey)
@@ -143,12 +144,15 @@ func buildCreateChildStmt(tableName string, parent string, start string, end str
 
 func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string) string {
 	columns := make(map[string]string, len(fieldsNames)+1)
-	if len(partitionKey) == 0 {
-		columns["id"] = "UUID PRIMARY KEY"
-	} else {
-		columns["id"] = "UUID"
-	}
 	for _, name := range fieldsNames {
+		if name == "id" && len(partitionKey) == 0 {
+			columns["id"] = "UUID PRIMARY KEY"
+			continue
+		}
+		if name == "id" {
+			columns["id"] = "UUID"
+			continue
+		}
 		switch parser.GuessType(name) {
 		case parser.MyDate:
 			columns[pgKey(name)] = "DATE NULL"
