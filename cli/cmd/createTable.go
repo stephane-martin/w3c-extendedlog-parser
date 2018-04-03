@@ -93,7 +93,7 @@ var createTableCmd = &cobra.Command{
 		createIndexStmt := ""
 
 		for _, fieldName := range fieldsNames {
-			createIndexStmt = buildIndexStmt(tableName, fieldName)
+			createIndexStmt = buildIndexStmt(tableName, fieldName, len(parentPartitionKey) > 0)
 			if len(createIndexStmt) == 0 {
 				continue
 			}
@@ -144,7 +144,9 @@ func buildCreateChildStmt(tableName string, parent string, start string, end str
 func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string) string {
 	columns := make(map[string]string, len(fieldsNames)+1)
 	if len(partitionKey) == 0 {
-		columns["id"] = "BIGSERIAL PRIMARY KEY"
+		columns["id"] = "UUID PRIMARY KEY"
+	} else {
+		columns["id"] = "UUID"
 	}
 	for _, name := range fieldsNames {
 		switch parser.GuessType(name) {
@@ -175,9 +177,7 @@ func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string
 		fieldsNames = append([]string{"gmttime"}, fieldsNames...)
 		columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
 	}
-	if len(partitionKey) == 0 {
-		fieldsNames = append([]string{"id"}, fieldsNames...)
-	}
+	fieldsNames = append([]string{"id"}, fieldsNames...)
 
 	createStmt := "CREATE TABLE %s (\n"
 	for _, name := range fieldsNames {
@@ -194,7 +194,7 @@ func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string
 	return fmt.Sprintf(createStmt, tableName)
 }
 
-func buildIndexStmt(tableName string, fieldName string) string {
+func buildIndexStmt(tableName string, fieldName string, child bool) string {
 	switch parser.GuessType(fieldName) {
 	case parser.MyDate, parser.MyTime, parser.MyTimestamp:
 		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
@@ -208,6 +208,9 @@ func buildIndexStmt(tableName string, fieldName string) string {
 	case parser.String, parser.MyURI:
 		if fieldName == "id" {
 			// primary key
+			if child {
+				return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+			}
 			return ""
 		}
 		if fieldName == "cs-uri-query" || fieldName == "cs(referer)" {
@@ -218,7 +221,7 @@ func buildIndexStmt(tableName string, fieldName string) string {
 			// fields not so interesting
 			return ""
 		}
-		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s ((lower(%s)));", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
 	default:
 		return ""
 	}

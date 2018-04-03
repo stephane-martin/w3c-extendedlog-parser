@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/pgio"
 	"github.com/jackc/pgx/pgtype"
 	unidecode "github.com/mozillazg/go-unidecode"
+	uuid "github.com/satori/go.uuid"
 	"github.com/spf13/cobra"
 	parser "github.com/stephane-martin/w3c-extendedlog-parser"
 	"golang.org/x/text/encoding/charmap"
@@ -201,6 +202,7 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 	if !p.HasGmtTime() {
 		curFieldNames = append([]string{"gmttime"}, curFieldNames...)
 	}
+	curFieldNames = append([]string{"id"}, curFieldNames...)
 	nbFields := len(curFieldNames)
 
 	columnNames := make([]string, 0, nbFields)
@@ -257,10 +259,21 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 
 		nbLines++
 		for _, name := range curFieldNames {
-			// append converted type
-			err = row.AddField(pgConvert(types[name], line.Get(name)))
-			if err != nil {
-				return 0, err
+			if name == "id" {
+				uuid, err := uuid.NewV1()
+				if err != nil {
+					return 0, err
+				}
+				err = row.AddField(uuid.Bytes())
+				if err != nil {
+					return 0, err
+				}
+			} else {
+				// append converted type
+				err = row.AddField(pgConvert(types[name], line.Get(name)))
+				if err != nil {
+					return 0, err
+				}
 			}
 		}
 	}

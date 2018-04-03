@@ -237,6 +237,12 @@
 			"revisionTime": "2018-03-11T21:45:15Z"
 		},
 		{
+			"checksumSHA1": "eDQ6f1EsNf+frcRO/9XukSEchm8=",
+			"path": "github.com/satori/go.uuid",
+			"revision": "36e9d2ebbde5e3f13ab2e25625fd453271d6522e",
+			"revisionTime": "2018-01-03T17:44:51Z"
+		},
+		{
 			"checksumSHA1": "F3JU4T4XXvZTRAcv6rhTao4QGos=",
 			"path": "github.com/spf13/afero",
 			"revision": "bbf41cb36dffe15dff5bf7e18c447801e7ffe163",
