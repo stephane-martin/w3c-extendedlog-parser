@@ -97,13 +97,13 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 	fmt.Fprintln(os.Stderr, "Uploading:", fname)
 	start := time.Now()
 	nbLines, err := uploadPG(f, pool, bsize)
-	duration := time.Now().Sub(start)
+	duration := time.Now().Sub(start).Seconds()
 	f.Close()
 	if err == nil {
 		fmt.Fprintf(
 			os.Stderr,
 			"Successfully uploaded: %s (%d lines, %f secs, %d lines/sec)\n",
-			fname, nbLines, duration.Seconds(), nbLines/int(duration.Seconds()),
+			fname, nbLines, duration, int(float64(nbLines)/duration),
 		)
 	} else {
 		fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)

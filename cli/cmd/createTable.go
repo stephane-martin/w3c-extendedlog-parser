@@ -12,6 +12,10 @@ import (
 )
 
 var tableName string
+var partitionKey string
+var parentPartitionKey string
+var rangeStart string
+var rangeEnd string
 var noIndex bool
 
 func pgKey(key string) string {
@@ -35,6 +39,12 @@ var createTableCmd = &cobra.Command{
 		if len(fieldsLine) != 0 && len(fname) != 0 {
 			fatal(errors.New("--fields and --filename options are exclusive"))
 		}
+		if len(parentPartitionKey) > 0 && len(partitionKey) > 0 {
+			fatal(errors.New("--partition and --parent are exclusive"))
+		}
+		if len(parentPartitionKey) > 0 && (len(rangeStart) == 0 || len(rangeEnd) == 0) {
+			fatal(errors.New("if --parent is set, --start and --end must be specified too"))
+		}
 		if len(fieldsLine) > 0 {
 			fieldsNames = strings.Split(fieldsLine, " ")
 		} else {
@@ -49,47 +59,12 @@ var createTableCmd = &cobra.Command{
 		if len(fieldsNames) == 0 {
 			fatal(errors.New("field names not found"))
 		}
-
-		columns := make(map[string]string, len(fieldsNames)+1)
-		columns["id"] = "BIGSERIAL PRIMARY KEY"
-		for _, name := range fieldsNames {
-			switch parser.GuessType(name) {
-			case parser.MyDate:
-				columns[pgKey(name)] = "DATE NULL"
-			case parser.MyIP:
-				columns[pgKey(name)] = "INET NULL"
-			case parser.MyTime:
-				columns[pgKey(name)] = "TIME NULL"
-			case parser.MyTimestamp:
-				columns[pgKey(name)] = "TIMESTAMP WITH TIME ZONE NULL"
-			case parser.MyURI:
-				columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
-			case parser.Float64:
-				columns[pgKey(name)] = "DOUBLE PRECISION NULL"
-			case parser.Int64:
-				columns[pgKey(name)] = "BIGINT NULL"
-			case parser.Bool:
-				columns[pgKey(name)] = "BOOLEAN NULL"
-			case parser.String:
-				columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
-			default:
-				columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
-			}
+		createStmt := ""
+		if len(parentPartitionKey) == 0 {
+			createStmt = buildCreateStmt(tableName, fieldsNames, partitionKey)
+		} else {
+			createStmt = buildCreateChildStmt(tableName, parentPartitionKey, rangeStart, rangeEnd)
 		}
-
-		if columns["gmttime"] == "" {
-			fieldsNames = append([]string{"gmttime"}, fieldsNames...)
-			columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
-		}
-		fieldsNames = append([]string{"id"}, fieldsNames...)
-
-		createStmt := "CREATE TABLE %s (\n"
-		for _, name := range fieldsNames {
-			createStmt += fmt.Sprintf("    %s %s,\n", pgKey(name), columns[pgKey(name)])
-		}
-		// remove last ,
-		createStmt = strings.Trim(createStmt, ",\n")
-		createStmt += ");"
 
 		dbURI = strings.TrimSpace(dbURI)
 		tableName = strings.TrimSpace(tableName)
@@ -106,55 +81,36 @@ var createTableCmd = &cobra.Command{
 		fatal(err)
 		defer conn.Close()
 
-		createStmt = fmt.Sprintf(createStmt, tableName)
 		fmt.Fprintln(os.Stderr, createStmt)
 		_, err = conn.Exec(createStmt)
 		fatal(err)
 		fmt.Fprintf(os.Stderr, "table '%s' has been created\n", tableName)
 
-		if noIndex {
+		if noIndex || len(partitionKey) > 0 {
 			return
 		}
 
 		createIndexStmt := ""
-	Loop:
-		for _, name := range fieldsNames {
-			switch parser.GuessType(name) {
-			case parser.MyDate, parser.MyTime, parser.MyTimestamp:
-				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING BRIN (%s);", pgKey(name), tableName, pgKey(name))
 
-			case parser.MyIP:
-				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s USING GIST (%s inet_ops);", pgKey(name), tableName, pgKey(name))
-
-			case parser.Float64, parser.Int64, parser.Bool:
-				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s (%s);", pgKey(name), tableName, pgKey(name))
-
-			case parser.String, parser.MyURI:
-				if name == "id" {
-					// primary key
-					continue Loop
-				}
-				if name == "cs-uri-query" || name == "cs(referer)" {
-					// fields too large for a BTREE index
-					continue Loop
-				}
-				if name == "x-virus-id" || name == "x-bluecoat-application-name" || name == "x-bluecoat-application-operation" {
-					// fields not so interesting
-					continue Loop
-				}
-				createIndexStmt = fmt.Sprintf("CREATE INDEX %s_idx ON %s ((lower(%s)));", pgKey(name), tableName, pgKey(name))
-			default:
-				continue Loop
+		for _, fieldName := range fieldsNames {
+			createIndexStmt = buildIndexStmt(tableName, fieldName)
+			if len(createIndexStmt) == 0 {
+				continue
 			}
 			fmt.Fprintln(os.Stderr, createIndexStmt)
 			_, err = conn.Exec(createIndexStmt)
 			fatal(err)
-			fmt.Fprintf(os.Stderr, "Index has been created on %s\n", name)
+			fmt.Fprintf(os.Stderr, "Index has been created on %s\n", fieldName)
 		}
 
 		for _, name := range fieldsNames {
 			if name == "cs(user-agent)" {
-				createIndexStmt = fmt.Sprintf("CREATE INDEX full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));", tableName, pgKey(name))
+				createIndexStmt = fmt.Sprintf(
+					"CREATE INDEX %s_full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));",
+					tableName,
+					tableName,
+					pgKey(name),
+				)
 				fmt.Fprintln(os.Stderr, createIndexStmt)
 				_, err = conn.Exec(createIndexStmt)
 				fatal(err)
@@ -172,4 +128,98 @@ func init() {
 	createTableCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
 	createTableCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	createTableCmd.Flags().BoolVar(&noIndex, "noindex", false, "if set, do not create indices in pgsql")
+	createTableCmd.Flags().StringVar(&partitionKey, "partition", "", "if set, create a partitioned table using the given column name")
+	createTableCmd.Flags().StringVar(&parentPartitionKey, "parent", "", "if set, create the table as a child partition of that parent")
+	createTableCmd.Flags().StringVar(&rangeStart, "start", "", "range start for the child partition")
+	createTableCmd.Flags().StringVar(&rangeEnd, "end", "", "range end for the child partition")
+}
+
+func buildCreateChildStmt(tableName string, parent string, start string, end string) string {
+	return fmt.Sprintf(
+		"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s');",
+		tableName, parent, start, end,
+	)
+}
+
+func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string) string {
+	columns := make(map[string]string, len(fieldsNames)+1)
+	if len(partitionKey) == 0 {
+		columns["id"] = "BIGSERIAL PRIMARY KEY"
+	}
+	for _, name := range fieldsNames {
+		switch parser.GuessType(name) {
+		case parser.MyDate:
+			columns[pgKey(name)] = "DATE NULL"
+		case parser.MyIP:
+			columns[pgKey(name)] = "INET NULL"
+		case parser.MyTime:
+			columns[pgKey(name)] = "TIME NULL"
+		case parser.MyTimestamp:
+			columns[pgKey(name)] = "TIMESTAMP WITH TIME ZONE NULL"
+		case parser.MyURI:
+			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
+		case parser.Float64:
+			columns[pgKey(name)] = "DOUBLE PRECISION NULL"
+		case parser.Int64:
+			columns[pgKey(name)] = "BIGINT NULL"
+		case parser.Bool:
+			columns[pgKey(name)] = "BOOLEAN NULL"
+		case parser.String:
+			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
+		default:
+			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
+		}
+	}
+
+	if columns["gmttime"] == "" {
+		fieldsNames = append([]string{"gmttime"}, fieldsNames...)
+		columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
+	}
+	if len(partitionKey) == 0 {
+		fieldsNames = append([]string{"id"}, fieldsNames...)
+	}
+
+	createStmt := "CREATE TABLE %s (\n"
+	for _, name := range fieldsNames {
+		createStmt += fmt.Sprintf("    %s %s,\n", pgKey(name), columns[pgKey(name)])
+	}
+	// remove last ,
+	createStmt = strings.Trim(createStmt, ",\n")
+	// add a PARTITION if requested
+	if len(partitionKey) > 0 {
+		createStmt += fmt.Sprintf(") PARTITION BY RANGE (%s);", partitionKey)
+	} else {
+		createStmt += ");"
+	}
+	return fmt.Sprintf(createStmt, tableName)
+}
+
+func buildIndexStmt(tableName string, fieldName string) string {
+	switch parser.GuessType(fieldName) {
+	case parser.MyDate, parser.MyTime, parser.MyTimestamp:
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+
+	case parser.MyIP:
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s USING GIST (%s inet_ops);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+
+	case parser.Float64, parser.Int64, parser.Bool:
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+
+	case parser.String, parser.MyURI:
+		if fieldName == "id" {
+			// primary key
+			return ""
+		}
+		if fieldName == "cs-uri-query" || fieldName == "cs(referer)" {
+			// fields too large for a BTREE index
+			return ""
+		}
+		if fieldName == "x-virus-id" || fieldName == "x-bluecoat-application-name" || fieldName == "x-bluecoat-application-operation" {
+			// fields not so interesting
+			return ""
+		}
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s ((lower(%s)));", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+	default:
+		return ""
+	}
 }
