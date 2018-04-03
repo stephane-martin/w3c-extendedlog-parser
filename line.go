@@ -137,3 +137,10 @@ func (l *Line) GetTime() time.Time {
 	}
 	return time.Time{}
 }
+
+func (l *Line) GetDate() (d Date) {
+	if l.fields["date"] != nil {
+		d = l.fields["date"].(Date)
+	}
+	return d
+}
