@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -160,6 +161,17 @@ func (r *Rows) GetSource() (s *Source, err error) {
 	return &Source{r: r}, nil
 }
 
+func (r *Rows) String() string {
+	buf := bytes.NewBuffer(nil)
+	for _, row := range r.rows {
+		for _, field := range *row {
+			buf.WriteString(fmt.Sprintf("%v ", field))
+		}
+		buf.WriteString("\n")
+	}
+	return buf.String()
+}
+
 func (r *Rows) Clear() {
 	var row *Row
 	for _, row = range r.rows {
@@ -248,6 +260,7 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 
 		row, full = factory.GetRow()
 		if full {
+			// we have batchsize lines, let's flush
 			err = uploadRows()
 			if err != nil {
 				return 0, err
