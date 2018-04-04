@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -96,7 +97,7 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 		return
 	}
 
-	fmt.Fprintln(os.Stderr, "Uploading:", fname)
+	fmt.Fprintf(os.Stderr, "-> Uploading: %s\n", fname)
 	start := time.Now()
 	nbLines, err := uploadPG(f, pool, bsize)
 	duration := time.Now().Sub(start).Seconds()
@@ -104,11 +105,11 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 	if err == nil {
 		fmt.Fprintf(
 			os.Stderr,
-			"Successfully uploaded: %s (%d lines, %f secs, %d lines/sec)\n",
+			"<- Uploaded:  %s (%d lines, %f secs, %d lines/sec)\n",
 			fname, nbLines, duration, int(float64(nbLines)/duration),
 		)
 	} else {
-		fmt.Fprintf(os.Stderr, "Error uploading '%s': %s\n", fname, err)
+		fmt.Fprintf(os.Stderr, "<- Error for: '%s': %s\n", fname, err)
 	}
 }
 
@@ -226,13 +227,10 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 		types[name] = parser.GuessType(name)
 	}
 
-	conn, err := connPool.Acquire()
-	if err != nil {
-		return 0, err
-	}
-	defer connPool.Release(conn)
-
 	factory := RowFactory(bsize, nbFields)
+	txnOpts := &pgx.TxOptions{
+		IsoLevel: pgx.ReadCommitted,
+	}
 
 	uploadRows := func() error {
 		if factory.Len() == 0 {
@@ -242,7 +240,16 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 		if err != nil {
 			return err
 		}
-		_, err = conn.CopyFrom(pgx.Identifier{tableName}, columnNames, s)
+		txn, err := connPool.BeginEx(context.Background(), txnOpts)
+		if err != nil {
+			return err
+		}
+		defer txn.Rollback()
+		_, err = txn.CopyFrom(pgx.Identifier{tableName}, columnNames, s)
+		if err != nil {
+			return err
+		}
+		err = txn.Commit()
 		if err != nil {
 			return err
 		}
@@ -296,9 +303,7 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 	if err != nil {
 		return 0, err
 	}
-
-	_, err = conn.Exec("VACUUM;")
-	return nbLines, err
+	return nbLines, nil
 }
 
 // MyMyTime encapsulates parser.Time so that it can be serialized to PG.

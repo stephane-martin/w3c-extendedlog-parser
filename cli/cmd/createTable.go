@@ -59,6 +59,16 @@ var createTableCmd = &cobra.Command{
 		if len(fieldsNames) == 0 {
 			fatal(errors.New("field names not found"))
 		}
+		hasGMT := false
+		for _, name := range fieldsNames {
+			if name == "gmttime" {
+				hasGMT = true
+				break
+			}
+		}
+		if !hasGMT {
+			fieldsNames = append([]string{"gmttime"}, fieldsNames...)
+		}
 		fieldsNames = append([]string{"id"}, fieldsNames...)
 		createStmt := ""
 		if len(parentPartitionKey) == 0 {
@@ -153,6 +163,10 @@ func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string
 			columns["id"] = "UUID"
 			continue
 		}
+		if name == "gmttime" {
+			columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
+			continue
+		}
 		switch parser.GuessType(name) {
 		case parser.MyDate:
 			columns[pgKey(name)] = "DATE NULL"
@@ -176,12 +190,6 @@ func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string
 			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
 		}
 	}
-
-	if columns["gmttime"] == "" {
-		fieldsNames = append([]string{"gmttime"}, fieldsNames...)
-		columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
-	}
-	fieldsNames = append([]string{"id"}, fieldsNames...)
 
 	createStmt := "CREATE TABLE %s (\n"
 	for _, name := range fieldsNames {
