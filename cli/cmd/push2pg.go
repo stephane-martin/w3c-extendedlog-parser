@@ -211,20 +211,28 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 		fmt.Fprintln(os.Stderr, "Error building parser:", err)
 		return 0, err
 	}
-	curFieldNames := p.FieldNames()
+	rawFnames := p.FieldNames()
+	fNames := make([]string, 0, len(rawFnames))
+	fNames = append(fNames, "id")
 	if !p.HasGmtTime() {
-		curFieldNames = append([]string{"gmttime"}, curFieldNames...)
+		fNames = append(fNames, "gmttime")
 	}
-	curFieldNames = append([]string{"id"}, curFieldNames...)
-	nbFields := len(curFieldNames)
+	for _, fName := range rawFnames {
+		if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
+			continue
+		}
+		fNames = append(fNames, fName)
+	}
+
+	nbFields := len(fNames)
 
 	columnNames := make([]string, 0, nbFields)
 	types := make(map[string]parser.Kind, nbFields)
-	for _, name := range curFieldNames {
+	for _, fName := range fNames {
 		// make sure column names are PG compatible
-		columnNames = append(columnNames, pgKey(name))
+		columnNames = append(columnNames, pgKey(fName))
 		// store the data type for each column
-		types[name] = parser.GuessType(name)
+		types[fName] = parser.GuessType(fName)
 	}
 
 	factory := RowFactory(bsize, nbFields)
@@ -278,8 +286,8 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 		}
 
 		nbLines++
-		for _, name := range curFieldNames {
-			if name == "id" {
+		for _, fName := range fNames {
+			if fName == "id" {
 				uuid, err := uuid.NewV1()
 				if err != nil {
 					return 0, err
@@ -288,9 +296,11 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 				if err != nil {
 					return 0, err
 				}
+			} else if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
+				continue
 			} else {
 				// append converted type
-				err = row.AddField(pgConvert(types[name], line.Get(name)))
+				err = row.AddField(pgConvert(types[fName], line.Get(fName)))
 				if err != nil {
 					return 0, err
 				}
