@@ -69,8 +69,8 @@ var push2pgCmd = &cobra.Command{
 	},
 }
 
-func uploadFilesPG(fnames []string, excludes map[string]bool, pool *pgx.ConnPool, nbInjectors uint, bsize int) {
-	fnamesChan := make(chan string)
+func uploadFilesPG(files []string, excludes map[string]bool, pool *pgx.ConnPool, nbInjectors uint, bsize int) {
+	filesChan := make(chan string)
 	var wg sync.WaitGroup
 
 	for i := uint(0); i < nbInjectors; i++ {
@@ -78,31 +78,31 @@ func uploadFilesPG(fnames []string, excludes map[string]bool, pool *pgx.ConnPool
 		go func() {
 			defer wg.Done()
 			for {
-				fname, ok := <-fnamesChan
+				file, ok := <-filesChan
 				if !ok {
 					return
 				}
-				uploadFilePG(fname, excludes, pool, bsize)
+				uploadFilePG(file, excludes, pool, bsize)
 			}
 		}()
 	}
 
-	for _, fname := range fnames {
-		fnamesChan <- fname
+	for _, f := range files {
+		filesChan <- f
 	}
-	close(fnamesChan)
+	close(filesChan)
 	wg.Wait()
 }
 
-func uploadFilePG(fname string, excludes map[string]bool, pool *pgx.ConnPool, bsize int) {
-	fname = strings.TrimSpace(fname)
-	f, err := os.Open(fname)
+func uploadFilePG(file string, excludes map[string]bool, pool *pgx.ConnPool, bsize int) {
+	file = strings.TrimSpace(file)
+	f, err := os.Open(file)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
+		fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", file, err)
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "-> Uploading: %s\n", fname)
+	fmt.Fprintf(os.Stderr, "-> Uploading: %s\n", file)
 	start := time.Now()
 	nbLines, err := uploadPG(f, excludes, pool, bsize)
 	duration := time.Now().Sub(start).Seconds()
@@ -111,10 +111,10 @@ func uploadFilePG(fname string, excludes map[string]bool, pool *pgx.ConnPool, bs
 		fmt.Fprintf(
 			os.Stderr,
 			"<- Uploaded:  %s (%d lines, %f secs, %d lines/sec)\n",
-			fname, nbLines, duration, int(float64(nbLines)/duration),
+			file, nbLines, duration, int(float64(nbLines)/duration),
 		)
 	} else {
-		fmt.Fprintf(os.Stderr, "<- Error for: '%s': %s\n", fname, err)
+		fmt.Fprintf(os.Stderr, "<- Error for: '%s': %s\n", file, err)
 	}
 }
 
@@ -222,12 +222,18 @@ func uploadPG(f io.Reader, excludes map[string]bool, connPool *pgx.ConnPool, bsi
 	if !p.HasGmtTime() {
 		fNames = append(fNames, "gmttime")
 	}
-	fNames = append(fNames, rawFnames...)
+	for _, fName := range rawFnames {
+		if excludes[strings.ToLower(fName)] {
+			continue
+		}
+		fNames = append(fNames, fName)
+	}
 	nbFields := len(fNames)
 
 	columnNames := make([]string, 0, nbFields)
 	types := make(map[string]parser.Kind, nbFields)
 	for _, fName := range fNames {
+
 		// make sure column names are PG compatible
 		columnNames = append(columnNames, pgKey(fName))
 		// store the data type for each column
@@ -286,9 +292,6 @@ func uploadPG(f io.Reader, excludes map[string]bool, connPool *pgx.ConnPool, bsi
 
 		nbLines++
 		for _, fName := range fNames {
-			if excludes[strings.ToLower(fName)] {
-				continue
-			}
 			if fName == "id" {
 				uuid, err := uuid.NewV1()
 				if err != nil {
