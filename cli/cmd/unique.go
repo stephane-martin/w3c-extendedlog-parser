@@ -92,6 +92,9 @@ func uniqueFile(fname string, uniques *map[string]map[string]bool, totals *map[s
 		(*totals)[date]++
 		lineB, err = line.MarshalJSON()
 		h = string(murmur3.New128().Sum(lineB))
+		if (*uniques)[date] == nil {
+			(*uniques)[date] = make(map[string]bool)
+		}
 		(*uniques)[date][h] = true
 	}
 	return nil
