@@ -243,6 +243,12 @@
 			"revisionTime": "2018-01-03T17:44:51Z"
 		},
 		{
+			"checksumSHA1": "jAzqolwnRJhHsKXmmvKNrHqxqAw=",
+			"path": "github.com/spaolacci/murmur3",
+			"revision": "f09979ecbc725b9e6d41a297405f65e7e8804acc",
+			"revisionTime": "2018-01-18T20:28:30Z"
+		},
+		{
 			"checksumSHA1": "F3JU4T4XXvZTRAcv6rhTao4QGos=",
 			"path": "github.com/spf13/afero",
 			"revision": "bbf41cb36dffe15dff5bf7e18c447801e7ffe163",
