@@ -212,7 +212,7 @@ func buildIndexStmt(tName string, fName string, isChild bool) string {
 			}
 			return ""
 		}
-		if fName == "cs-uri-query" || fName == "cs(referer)" {
+		if fName == "cs-uri-query" || fName == "cs(referer)" || fName == "cs-uri-path" {
 			// fields too large for a BTREE index
 			return ""
 		}
