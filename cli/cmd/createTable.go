@@ -113,114 +113,109 @@ var createTableCmd = &cobra.Command{
 			fatal(err)
 			fmt.Fprintf(os.Stderr, "Index has been created on %s\n", fieldName)
 		}
-
-		for _, name := range fieldsNames {
-			if name == "cs(user-agent)" {
-				createIndexStmt = fmt.Sprintf(
-					"CREATE INDEX %s_full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));",
-					tableName,
-					tableName,
-					pgKey(name),
-				)
-				fmt.Fprintln(os.Stderr, createIndexStmt)
-				_, err = conn.Exec(createIndexStmt)
-				fatal(err)
-				fmt.Fprintln(os.Stderr, "full text index has been created on cs(User-Agent)")
-			}
-		}
-
 	},
 }
 
-func buildCreateChildStmt(tableName string, parent string, start string, end string) string {
+func buildCreateChildStmt(tName string, parent string, start string, end string) string {
 	return fmt.Sprintf(
 		"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s');",
-		tableName, parent, start, end,
+		tName, parent, start, end,
 	)
 }
 
-func buildCreateStmt(tableName string, fieldsNames []string, partitionKey string) string {
-	columns := make(map[string]string, len(fieldsNames)+1)
-	for _, name := range fieldsNames {
-		if name == "id" && len(partitionKey) == 0 {
+func buildCreateStmt(tName string, fNames []string, pKey string) string {
+	columns := make(map[string]string, len(fNames)+1)
+	for _, fName := range fNames {
+		if fName == "id" && len(pKey) == 0 {
 			columns["id"] = "UUID PRIMARY KEY"
 			continue
 		}
-		if name == "id" {
+		if fName == "id" {
 			columns["id"] = "UUID"
 			continue
 		}
-		if name == "gmttime" {
+		if fName == "gmttime" {
 			columns["gmttime"] = "TIMESTAMP WITH TIME ZONE NULL"
 			continue
 		}
-		switch parser.GuessType(name) {
+		switch parser.GuessType(fName) {
 		case parser.MyDate:
-			columns[pgKey(name)] = "DATE NULL"
+			columns[pgKey(fName)] = "DATE NULL"
 		case parser.MyIP:
-			columns[pgKey(name)] = "INET NULL"
+			columns[pgKey(fName)] = "INET NULL"
 		case parser.MyTime:
-			columns[pgKey(name)] = "TIME NULL"
+			columns[pgKey(fName)] = "TIME NULL"
 		case parser.MyTimestamp:
-			columns[pgKey(name)] = "TIMESTAMP WITH TIME ZONE NULL"
+			columns[pgKey(fName)] = "TIMESTAMP WITH TIME ZONE NULL"
 		case parser.MyURI:
-			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
+			columns[pgKey(fName)] = "TEXT DEFAULT '' NOT NULL"
 		case parser.Float64:
-			columns[pgKey(name)] = "DOUBLE PRECISION NULL"
+			columns[pgKey(fName)] = "DOUBLE PRECISION NULL"
 		case parser.Int64:
-			columns[pgKey(name)] = "BIGINT NULL"
+			columns[pgKey(fName)] = "BIGINT NULL"
 		case parser.Bool:
-			columns[pgKey(name)] = "BOOLEAN NULL"
+			columns[pgKey(fName)] = "BOOLEAN NULL"
 		case parser.String:
-			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
+			columns[pgKey(fName)] = "TEXT DEFAULT '' NOT NULL"
 		default:
-			columns[pgKey(name)] = "TEXT DEFAULT '' NOT NULL"
+			columns[pgKey(fName)] = "TEXT DEFAULT '' NOT NULL"
 		}
 	}
 
 	createStmt := "CREATE TABLE %s (\n"
-	for _, name := range fieldsNames {
-		createStmt += fmt.Sprintf("    %s %s,\n", pgKey(name), columns[pgKey(name)])
+	for _, fName := range fNames {
+		if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
+			continue
+		}
+		createStmt += fmt.Sprintf("    %s %s,\n", pgKey(fName), columns[pgKey(fName)])
 	}
 	// remove last ,
 	createStmt = strings.Trim(createStmt, ",\n")
 	// add a PARTITION if requested
-	if len(partitionKey) > 0 {
-		createStmt += fmt.Sprintf(") PARTITION BY RANGE (%s);", partitionKey)
+	if len(pKey) > 0 {
+		createStmt += fmt.Sprintf(") PARTITION BY RANGE (%s);", pKey)
 	} else {
 		createStmt += ");"
 	}
-	return fmt.Sprintf(createStmt, tableName)
+	return fmt.Sprintf(createStmt, tName)
 }
 
-func buildIndexStmt(tableName string, fieldName string, child bool) string {
-	switch parser.GuessType(fieldName) {
+func buildIndexStmt(tName string, fName string, isChild bool) string {
+	switch parser.GuessType(fName) {
 	case parser.MyDate, parser.MyTime, parser.MyTimestamp:
-		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
 
 	case parser.MyIP:
-		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s USING GIST (%s inet_ops);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s USING GIST (%s inet_ops);", tName, pgKey(fName), tName, pgKey(fName))
 
 	case parser.Float64, parser.Int64, parser.Bool:
-		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
 
 	case parser.String, parser.MyURI:
-		if fieldName == "id" {
+		if fName == "id" {
 			// primary key
-			if child {
-				return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+			if isChild {
+				return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
 			}
 			return ""
 		}
-		if fieldName == "cs-uri-query" || fieldName == "cs(referer)" {
+		if fName == "cs-uri-query" || fName == "cs(referer)" || fName == "cs-uri-path" {
 			// fields too large for a BTREE index
 			return ""
 		}
-		if fieldName == "x-virus-id" || fieldName == "x-bluecoat-application-name" || fieldName == "x-bluecoat-application-operation" {
+		if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
 			// fields not so interesting
 			return ""
 		}
-		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tableName, pgKey(fieldName), tableName, pgKey(fieldName))
+		if fName == "cs(user-agent)" {
+			return fmt.Sprintf(
+				"CREATE INDEX %s_full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));",
+				tName,
+				tName,
+				pgKey(fName),
+			)
+		}
+		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
 	default:
 		return ""
 	}
