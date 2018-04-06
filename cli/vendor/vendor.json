@@ -3,6 +3,12 @@
 	"ignore": "test",
 	"package": [
 		{
+			"checksumSHA1": "iiCPrDlK53eq8CTllvi7qIFXiwM=",
+			"path": "github.com/clarkduvall/hyperloglog",
+			"revision": "a0107a5d80040c9b5efb012203b9a08d6817d196",
+			"revisionTime": "2017-11-27T01:45:14Z"
+		},
+		{
 			"checksumSHA1": "7NP1qUMF8Kx1y0zANxx0e+oq9Oo=",
 			"path": "github.com/fsnotify/fsnotify",
 			"revision": "c2828203cd70a50dcccfb2761f8b1f8ceef9a8e9",

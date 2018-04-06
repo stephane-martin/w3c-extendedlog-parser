@@ -3,9 +3,11 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 
+	"github.com/clarkduvall/hyperloglog"
 	"github.com/spaolacci/murmur3"
 	"github.com/spf13/cobra"
 	parser "github.com/stephane-martin/w3c-extendedlog-parser"
@@ -33,29 +35,29 @@ var uniqueCmd = &cobra.Command{
 			return
 		}
 		// date => hash => bool
-		uniqueHashes := make(map[string]map[string]bool)
+		uniques := make(map[string]*hyperloglog.HyperLogLogPlus)
 		// date => number
 		totals := make(map[string]uint64)
 		for _, file := range inputFiles {
-			err = uniqueFile(file, &uniqueHashes, &totals)
+			err = uniqueFile(file, &uniques, &totals)
 			fatal(err)
-			fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", countHashes(uniqueHashes), countTotal(totals))
+			fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", count(uniques), countTotal(totals))
 		}
 		fmt.Fprintln(os.Stderr)
-		for date := range uniqueHashes {
+		for date := range uniques {
 			fmt.Fprintf(
 				os.Stderr,
 				"%s: %d unique lines / %d (%d% duplicates)\n",
-				date, len(uniqueHashes[date]), totals[date], 100-int(float64(100*len(uniqueHashes[date]))/float64(totals[date])),
+				date, uniques[date].Count(), totals[date], 100-int(float64(100*uniques[date].Count())/float64(totals[date])),
 			)
 		}
 
 	},
 }
 
-func countHashes(allhashes map[string]map[string]bool) (total uint64) {
+func count(allhashes map[string]*hyperloglog.HyperLogLogPlus) (total uint64) {
 	for _, hashes := range allhashes {
-		total += uint64(len(hashes))
+		total += uint64(hashes.Count())
 	}
 	return total
 }
@@ -67,7 +69,7 @@ func countTotal(totals map[string]uint64) (total uint64) {
 	return total
 }
 
-func uniqueFile(fname string, uniques *map[string]map[string]bool, totals *map[string]uint64) error {
+func uniqueFile(fname string, uniques *map[string]*hyperloglog.HyperLogLogPlus, totals *map[string]uint64) error {
 	f, err := os.Open(fname)
 	if err != nil {
 		return err
@@ -79,7 +81,7 @@ func uniqueFile(fname string, uniques *map[string]map[string]bool, totals *map[s
 		return err
 	}
 	var line *parser.Line
-	var h string
+	var h hash.Hash64
 	var date string
 	var lineB []byte
 
@@ -91,11 +93,12 @@ func uniqueFile(fname string, uniques *map[string]map[string]bool, totals *map[s
 		date = line.GetDate().String()
 		(*totals)[date]++
 		lineB, err = line.MarshalJSON()
-		h = string(murmur3.New128().Sum(lineB))
+		h = murmur3.New64()
+		h.Write(lineB)
 		if (*uniques)[date] == nil {
-			(*uniques)[date] = make(map[string]bool)
+			(*uniques)[date], _ = hyperloglog.NewPlus(18)
 		}
-		(*uniques)[date][h] = true
+		(*uniques)[date].Add(h)
 	}
 	return nil
 
