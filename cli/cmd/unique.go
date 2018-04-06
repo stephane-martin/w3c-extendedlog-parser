@@ -32,18 +32,42 @@ var uniqueCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "No file to process.")
 			return
 		}
-		uniqueHashes := make(map[string]bool)
-		var total uint64
+		// date => hash => bool
+		uniqueHashes := make(map[string]map[string]bool)
+		// date => number
+		totals := make(map[string]uint64)
 		for _, file := range inputFiles {
-			err = uniqueFile(file, &uniqueHashes, &total)
+			err = uniqueFile(file, &uniqueHashes, &totals)
 			fatal(err)
-			fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", len(uniqueHashes), total)
+			fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", countHashes(uniqueHashes), countTotal(totals))
+		}
+		fmt.Fprintln(os.Stderr)
+		for date := range uniqueHashes {
+			fmt.Fprintf(
+				os.Stderr,
+				"%s: %d unique lines / %d (%d% duplicates)\n",
+				date, len(uniqueHashes[date]), totals[date], 100-int(float64(100*len(uniqueHashes[date]))/float64(totals[date])),
+			)
 		}
 
 	},
 }
 
-func uniqueFile(fname string, uniques *map[string]bool, total *uint64) error {
+func countHashes(allhashes map[string]map[string]bool) (total uint64) {
+	for _, hashes := range allhashes {
+		total += uint64(len(hashes))
+	}
+	return total
+}
+
+func countTotal(totals map[string]uint64) (total uint64) {
+	for _, nb := range totals {
+		total += nb
+	}
+	return total
+}
+
+func uniqueFile(fname string, uniques *map[string]map[string]bool, totals *map[string]uint64) error {
 	f, err := os.Open(fname)
 	if err != nil {
 		return err
@@ -54,25 +78,21 @@ func uniqueFile(fname string, uniques *map[string]bool, total *uint64) error {
 	if err != nil {
 		return err
 	}
-	fields := p.FieldNames()
 	var line *parser.Line
-	var field string
-	var h murmur3.Hash128
+	var h string
+	var date string
+	var lineB []byte
 
 	for {
 		line, err = p.NextTo(line)
 		if line == nil || err != nil {
 			break
 		}
-		(*total)++
-		h = murmur3.New128()
-		for _, field = range fields {
-			_, err = h.Write([]byte(line.GetAsString(field) + " "))
-			if err != nil {
-				return err
-			}
-		}
-		(*uniques)[string(h.Sum(nil))] = true
+		date = line.GetDate().String()
+		(*totals)[date]++
+		lineB, err = line.MarshalJSON()
+		h = string(murmur3.New128().Sum(lineB))
+		(*uniques)[date][h] = true
 	}
 	return nil
 
