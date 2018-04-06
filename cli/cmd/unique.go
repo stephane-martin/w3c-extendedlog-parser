@@ -35,11 +35,10 @@ var uniqueCmd = &cobra.Command{
 		uniqueHashes := make(map[string]bool)
 		var total uint64
 		for _, file := range inputFiles {
-			fmt.Fprintln(os.Stderr, file)
 			err = uniqueFile(file, &uniqueHashes, &total)
 			fatal(err)
+			fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", len(uniqueHashes), total)
 		}
-		fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", len(uniqueHashes), total)
 
 	},
 }
