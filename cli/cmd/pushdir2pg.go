@@ -71,4 +71,5 @@ func init() {
 	pushdir2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	pushdir2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
 	pushdir2pgCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
+	pushdir2pgCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }

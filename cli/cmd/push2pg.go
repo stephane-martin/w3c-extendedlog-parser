@@ -32,6 +32,7 @@ const (
 
 var parallel uint8
 var batchsize int
+var excludedFields []string
 
 var isoDecoder = charmap.ISO8859_15.NewDecoder()
 
@@ -404,9 +405,10 @@ func decodeCharset(s string) string {
 
 func init() {
 	rootCmd.AddCommand(push2pgCmd)
-	push2pgCmd.Flags().StringArrayVar(&filenames, "filename", []string{}, "the files to parse")
+	push2pgCmd.Flags().StringArrayVar(&filenames, "filename", []string{}, "file to be parsed (can be repeated)")
 	push2pgCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of pg table to push events to")
 	push2pgCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	push2pgCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
 	push2pgCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size for postgresql INSERT")
+	push2pgCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }

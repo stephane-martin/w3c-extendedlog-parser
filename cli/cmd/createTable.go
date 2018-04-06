@@ -132,19 +132,6 @@ var createTableCmd = &cobra.Command{
 	},
 }
 
-func init() {
-	rootCmd.AddCommand(createTableCmd)
-	createTableCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of table to be created in pgsql")
-	createTableCmd.Flags().StringVar(&fieldsLine, "fields", "", "specify the fields that will be present in the access logs")
-	createTableCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
-	createTableCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
-	createTableCmd.Flags().BoolVar(&noIndex, "noindex", false, "if set, do not create indices in pgsql")
-	createTableCmd.Flags().StringVar(&partitionKey, "partition", "", "if set, create a partitioned table using the given column name")
-	createTableCmd.Flags().StringVar(&parentPartitionKey, "parent", "", "if set, create the table as a child partition of that parent")
-	createTableCmd.Flags().StringVar(&rangeStart, "start", "", "range start for the child partition")
-	createTableCmd.Flags().StringVar(&rangeEnd, "end", "", "range end for the child partition")
-}
-
 func buildCreateChildStmt(tableName string, parent string, start string, end string) string {
 	return fmt.Sprintf(
 		"CREATE TABLE %s PARTITION OF %s FOR VALUES FROM ('%s') TO ('%s');",
@@ -237,4 +224,18 @@ func buildIndexStmt(tableName string, fieldName string, child bool) string {
 	default:
 		return ""
 	}
+}
+
+func init() {
+	rootCmd.AddCommand(createTableCmd)
+	createTableCmd.Flags().StringVar(&tableName, "tablename", "accesslogs", "name of table to be created in pgsql")
+	createTableCmd.Flags().StringVar(&fieldsLine, "fields", "", "specify the fields that will be present in the access logs")
+	createTableCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
+	createTableCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
+	createTableCmd.Flags().BoolVar(&noIndex, "noindex", false, "if set, do not create indices in pgsql")
+	createTableCmd.Flags().StringVar(&partitionKey, "partition", "", "if set, create a partitioned table using the given column name")
+	createTableCmd.Flags().StringVar(&parentPartitionKey, "parent", "", "if set, create the table as a child partition of that parent")
+	createTableCmd.Flags().StringVar(&rangeStart, "start", "", "range start for the child partition")
+	createTableCmd.Flags().StringVar(&rangeEnd, "end", "", "range end for the child partition")
+	createTableCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }
