@@ -58,7 +58,12 @@ var pushdir2pgCmd = &cobra.Command{
 		fatal(err)
 		defer pool.Close()
 
-		uploadFilesPG(inputFiles, pool, uint(parallel), batchsize)
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+
+		uploadFilesPG(inputFiles, excludes, pool, uint(parallel), batchsize)
 
 	},
 }

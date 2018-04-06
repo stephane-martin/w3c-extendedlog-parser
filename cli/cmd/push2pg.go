@@ -61,11 +61,15 @@ var push2pgCmd = &cobra.Command{
 		})
 		fatal(err)
 		defer pool.Close()
-		uploadFilesPG(filenames, pool, uint(parallel), batchsize)
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+		uploadFilesPG(filenames, excludes, pool, uint(parallel), batchsize)
 	},
 }
 
-func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint, bsize int) {
+func uploadFilesPG(fnames []string, excludes map[string]bool, pool *pgx.ConnPool, nbInjectors uint, bsize int) {
 	fnamesChan := make(chan string)
 	var wg sync.WaitGroup
 
@@ -78,7 +82,7 @@ func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint, bsize 
 				if !ok {
 					return
 				}
-				uploadFilePG(fname, pool, bsize)
+				uploadFilePG(fname, excludes, pool, bsize)
 			}
 		}()
 	}
@@ -90,7 +94,7 @@ func uploadFilesPG(fnames []string, pool *pgx.ConnPool, nbInjectors uint, bsize 
 	wg.Wait()
 }
 
-func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
+func uploadFilePG(fname string, excludes map[string]bool, pool *pgx.ConnPool, bsize int) {
 	fname = strings.TrimSpace(fname)
 	f, err := os.Open(fname)
 	if err != nil {
@@ -100,7 +104,7 @@ func uploadFilePG(fname string, pool *pgx.ConnPool, bsize int) {
 
 	fmt.Fprintf(os.Stderr, "-> Uploading: %s\n", fname)
 	start := time.Now()
-	nbLines, err := uploadPG(f, pool, bsize)
+	nbLines, err := uploadPG(f, excludes, pool, bsize)
 	duration := time.Now().Sub(start).Seconds()
 	f.Close()
 	if err == nil {
@@ -205,7 +209,7 @@ func (s *Source) Err() error {
 	return nil
 }
 
-func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err error) {
+func uploadPG(f io.Reader, excludes map[string]bool, connPool *pgx.ConnPool, bsize int) (nbLines int, err error) {
 	p := parser.NewFileParser(f)
 	err = p.ParseHeader()
 	if err != nil {
@@ -218,13 +222,7 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 	if !p.HasGmtTime() {
 		fNames = append(fNames, "gmttime")
 	}
-	for _, fName := range rawFnames {
-		if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
-			continue
-		}
-		fNames = append(fNames, fName)
-	}
-
+	fNames = append(fNames, rawFnames...)
 	nbFields := len(fNames)
 
 	columnNames := make([]string, 0, nbFields)
@@ -288,6 +286,9 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 
 		nbLines++
 		for _, fName := range fNames {
+			if excludes[strings.ToLower(fName)] {
+				continue
+			}
 			if fName == "id" {
 				uuid, err := uuid.NewV1()
 				if err != nil {
@@ -297,14 +298,12 @@ func uploadPG(f io.Reader, connPool *pgx.ConnPool, bsize int) (nbLines int, err 
 				if err != nil {
 					return 0, err
 				}
-			} else if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
 				continue
-			} else {
-				// append converted type
-				err = row.AddField(pgConvert(types[fName], line.Get(fName)))
-				if err != nil {
-					return 0, err
-				}
+			}
+			// append converted type
+			err = row.AddField(pgConvert(types[fName], line.Get(fName)))
+			if err != nil {
+				return 0, err
 			}
 		}
 	}

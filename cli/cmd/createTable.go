@@ -70,9 +70,15 @@ var createTableCmd = &cobra.Command{
 			fieldsNames = append([]string{"gmttime"}, fieldsNames...)
 		}
 		fieldsNames = append([]string{"id"}, fieldsNames...)
+
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+
 		createStmt := ""
 		if len(parentPartitionKey) == 0 {
-			createStmt = buildCreateStmt(tableName, fieldsNames, partitionKey)
+			createStmt = buildCreateStmt(tableName, fieldsNames, excludes, partitionKey)
 		} else {
 			createStmt = buildCreateChildStmt(tableName, parentPartitionKey, rangeStart, rangeEnd)
 		}
@@ -104,7 +110,7 @@ var createTableCmd = &cobra.Command{
 		createIndexStmt := ""
 
 		for _, fieldName := range fieldsNames {
-			createIndexStmt = buildIndexStmt(tableName, fieldName, len(parentPartitionKey) > 0)
+			createIndexStmt = buildIndexStmt(tableName, fieldName, excludes, len(parentPartitionKey) > 0)
 			if len(createIndexStmt) == 0 {
 				continue
 			}
@@ -123,7 +129,7 @@ func buildCreateChildStmt(tName string, parent string, start string, end string)
 	)
 }
 
-func buildCreateStmt(tName string, fNames []string, pKey string) string {
+func buildCreateStmt(tName string, fNames []string, excludes map[string]bool, pKey string) string {
 	columns := make(map[string]string, len(fNames)+1)
 	for _, fName := range fNames {
 		if fName == "id" && len(pKey) == 0 {
@@ -164,7 +170,7 @@ func buildCreateStmt(tName string, fNames []string, pKey string) string {
 
 	createStmt := "CREATE TABLE %s (\n"
 	for _, fName := range fNames {
-		if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
+		if excludes[strings.ToLower(fName)] {
 			continue
 		}
 		createStmt += fmt.Sprintf("    %s %s,\n", pgKey(fName), columns[pgKey(fName)])
@@ -180,7 +186,10 @@ func buildCreateStmt(tName string, fNames []string, pKey string) string {
 	return fmt.Sprintf(createStmt, tName)
 }
 
-func buildIndexStmt(tName string, fName string, isChild bool) string {
+func buildIndexStmt(tName string, fName string, excludes map[string]bool, isChild bool) string {
+	if excludes[strings.ToLower(fName)] {
+		return ""
+	}
 	switch parser.GuessType(fName) {
 	case parser.MyDate, parser.MyTime, parser.MyTimestamp:
 		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
@@ -201,10 +210,6 @@ func buildIndexStmt(tName string, fName string, isChild bool) string {
 		}
 		if fName == "cs-uri-query" || fName == "cs(referer)" || fName == "cs-uri-path" {
 			// fields too large for a BTREE index
-			return ""
-		}
-		if fName == "x-virus-id" || fName == "x-bluecoat-application-name" || fName == "x-bluecoat-application-operation" {
-			// fields not so interesting
 			return ""
 		}
 		if fName == "cs(user-agent)" {
