@@ -6,6 +6,7 @@ import (
 	"hash"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"github.com/clarkduvall/hyperloglog"
 	"github.com/spaolacci/murmur3"
@@ -43,11 +44,21 @@ var uniqueCmd = &cobra.Command{
 			fatal(err)
 			fmt.Fprintf(os.Stderr, "%d unique lines / %d\n", count(uniques), countTotal(totals))
 		}
+
 		fmt.Fprintln(os.Stderr)
+		fmt.Fprintf(os.Stderr, "Summary: %d unique lines / %d\n", count(uniques), countTotal(totals))
+		fmt.Fprintln(os.Stderr)
+
+		alldates := make([]string, 0, len(uniques))
 		for date := range uniques {
+			alldates = append(alldates, date)
+		}
+		sort.Strings(alldates)
+
+		for _, date := range alldates {
 			fmt.Fprintf(
 				os.Stderr,
-				"%s: %d unique lines / %d (%d% duplicates)\n",
+				"%s: %d unique lines / %d (%d%% duplicates)\n",
 				date, uniques[date].Count(), totals[date], 100-int(float64(100*uniques[date].Count())/float64(totals[date])),
 			)
 		}
