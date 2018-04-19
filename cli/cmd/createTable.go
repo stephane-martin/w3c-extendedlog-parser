@@ -17,6 +17,7 @@ var parentPartitionKey string
 var rangeStart string
 var rangeEnd string
 var noIndex bool
+var noFullTextIndex bool
 
 func pgKey(key string) string {
 	key = strings.Replace(key, "-", "_", -1)
@@ -75,6 +76,9 @@ var createTableCmd = &cobra.Command{
 		for _, fName := range excludedFields {
 			excludes[strings.ToLower(fName)] = true
 		}
+		excludes["date"] = true
+		excludes["time"] = true
+		// todo: parse user agent
 
 		createStmt := ""
 		if len(parentPartitionKey) == 0 {
@@ -110,7 +114,7 @@ var createTableCmd = &cobra.Command{
 		createIndexStmt := ""
 
 		for _, fieldName := range fieldsNames {
-			createIndexStmt = buildIndexStmt(tableName, fieldName, excludes, len(parentPartitionKey) > 0)
+			createIndexStmt = buildIndexStmt(tableName, fieldName, excludes, len(parentPartitionKey) > 0, noFullTextIndex)
 			if len(createIndexStmt) == 0 {
 				continue
 			}
@@ -186,10 +190,33 @@ func buildCreateStmt(tName string, fNames []string, excludes map[string]bool, pK
 	return fmt.Sprintf(createStmt, tName)
 }
 
-func buildIndexStmt(tName string, fName string, excludes map[string]bool, isChild bool) string {
+func buildIndexStmt(tName string, fName string, excludes map[string]bool, isChild bool, nofulltext bool) string {
 	if excludes[strings.ToLower(fName)] {
 		return ""
 	}
+	if fName == "id" {
+		// primary key
+		if isChild {
+			return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
+		}
+		return ""
+	}
+	if fName == "cs-uri-query" || fName == "cs(referer)" || fName == "cs-uri-path" {
+		// fields too large for a BTREE index
+		return ""
+	}
+	if fName == "cs(user-agent)" {
+		if nofulltext {
+			return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
+		}
+		return fmt.Sprintf(
+			"CREATE INDEX %s_full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));",
+			tName,
+			tName,
+			pgKey(fName),
+		)
+	}
+
 	switch parser.GuessType(fName) {
 	case parser.MyDate, parser.MyTime, parser.MyTimestamp:
 		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
@@ -201,25 +228,6 @@ func buildIndexStmt(tName string, fName string, excludes map[string]bool, isChil
 		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
 
 	case parser.String, parser.MyURI:
-		if fName == "id" {
-			// primary key
-			if isChild {
-				return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
-			}
-			return ""
-		}
-		if fName == "cs-uri-query" || fName == "cs(referer)" || fName == "cs-uri-path" {
-			// fields too large for a BTREE index
-			return ""
-		}
-		if fName == "cs(user-agent)" {
-			return fmt.Sprintf(
-				"CREATE INDEX %s_full_useragent_idx ON %s USING GIN (to_tsvector('english', %s));",
-				tName,
-				tName,
-				pgKey(fName),
-			)
-		}
 		return fmt.Sprintf("CREATE INDEX %s_%s_idx ON %s (%s);", tName, pgKey(fName), tName, pgKey(fName))
 	default:
 		return ""
@@ -233,6 +241,7 @@ func init() {
 	createTableCmd.Flags().StringVar(&filename, "filename", "", "specify the log file from which to extract the fields")
 	createTableCmd.Flags().StringVar(&dbURI, "uri", "", "the URI of the postgresql server to connect to")
 	createTableCmd.Flags().BoolVar(&noIndex, "noindex", false, "if set, do not create indices in pgsql")
+	createTableCmd.Flags().BoolVar(&noFullTextIndex, "nofulltext", false, "if set, do not create a full text search index on user-agent field")
 	createTableCmd.Flags().StringVar(&partitionKey, "partition", "", "if set, create a partitioned table using the given column name")
 	createTableCmd.Flags().StringVar(&parentPartitionKey, "parent", "", "if set, create the table as a child partition of that parent")
 	createTableCmd.Flags().StringVar(&rangeStart, "start", "", "range start for the child partition")

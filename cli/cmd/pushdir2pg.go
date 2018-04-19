@@ -62,6 +62,8 @@ var pushdir2pgCmd = &cobra.Command{
 		for _, fName := range excludedFields {
 			excludes[strings.ToLower(fName)] = true
 		}
+		excludes["time"] = true
+		excludes["date"] = true
 
 		uploadFilesPG(inputFiles, excludes, pool, uint(parallel), batchsize)
 

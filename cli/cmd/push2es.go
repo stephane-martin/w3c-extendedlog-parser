@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -56,57 +57,74 @@ var push2esCmd = &cobra.Command{
 
 		fatal(err)
 
-		lines := make([]*parser.Line, 0, 1000)
-		var l *parser.Line
-
 		for _, fname := range filenames {
-			lines = lines[:0]
+			fmt.Fprintln(os.Stderr)
 			fname = strings.TrimSpace(fname)
 			f, err := os.Open(fname)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error opening '%s': %s\n", fname, err)
 				continue
 			}
-			defer f.Close()
-
-			p := parser.NewFileParser(f)
-			err = p.ParseHeader()
+			nbLines, err := uploadES(f, proc)
+			f.Close()
 			if err != nil {
-				fmt.Fprintln(os.Stderr, "Error building parser:", err)
+				fmt.Fprintf(os.Stderr, "Error processing '%s': %s\n", fname, err)
 				continue
 			}
-			fieldNames := p.FieldNames()
-
-			linePool := &sync.Pool{
-				New: func() interface{} {
-					return parser.NewLine(fieldNames)
-				},
-			}
-
-			for {
-				l, err = p.NextTo(linePool.Get().(*parser.Line))
-				if l == nil || err != nil {
-					break
-				}
-				lines = append(lines, l)
-				proc.Add(elastic.NewBulkIndexRequest().Doc(l).Index(indexName).Type("accesslogs"))
-				if len(lines) == 1000 {
-					fatal(proc.Flush())
-					for _, l = range lines {
-						linePool.Put(l)
-					}
-					lines = lines[:0]
-				}
-			}
-			if len(lines) > 0 {
-				fatal(proc.Flush())
-				for _, l = range lines {
-					linePool.Put(l)
-				}
-				lines = lines[:0]
-			}
+			fmt.Fprintf(os.Stderr, "Successfully uploaded '%s' (%d lines)\n", fname, nbLines)
 		}
 	},
+}
+
+func uploadES(f io.Reader, proc *elastic.BulkProcessor) (nbLines int, err error) {
+
+	lines := make([]*parser.Line, 0, 5000)
+	var l *parser.Line
+
+	p := parser.NewFileParser(f)
+	err = p.ParseHeader()
+	if err != nil {
+		return 0, err
+	}
+	fieldNames := p.FieldNames()
+
+	linePool := &sync.Pool{
+		New: func() interface{} {
+			return parser.NewLine(fieldNames)
+		},
+	}
+
+	for {
+		l, err = p.NextTo(linePool.Get().(*parser.Line))
+		if l == nil || err != nil {
+			break
+		}
+		nbLines++
+		lines = append(lines, l)
+		proc.Add(elastic.NewBulkIndexRequest().Doc(l).Index(indexName).Type("accesslogs"))
+		if len(lines) == 5000 {
+			err := proc.Flush()
+			if err != nil {
+				return 0, err
+			}
+			for _, l = range lines {
+				linePool.Put(l)
+			}
+			lines = lines[:0]
+		}
+	}
+	if len(lines) > 0 {
+		err := proc.Flush()
+		if err != nil {
+			return 0, err
+		}
+		for _, l = range lines {
+			linePool.Put(l)
+		}
+		lines = lines[:0]
+	}
+	return nbLines, nil
+
 }
 
 func init() {
