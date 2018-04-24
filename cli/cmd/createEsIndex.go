@@ -20,9 +20,16 @@ var username string
 var password string
 
 var createEsIndexCmd = &cobra.Command{
-	Use:   "create-es-index",
+	Use:   "create-index",
 	Short: "Create an index in Elasticsearch with adequate mapping",
 	Run: func(cmd *cobra.Command, args []string) {
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+		excludes["time"] = true
+		excludes["date"] = true
+
 		var fieldsNames []string
 		fieldsLine = strings.TrimSpace(fieldsLine)
 		fname := strings.TrimSpace(filename)
@@ -56,7 +63,7 @@ var createEsIndexCmd = &cobra.Command{
 			os.Exit(-1)
 		}
 
-		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldsNames)
+		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldsNames, excludes)
 		optionsBody, err := json.Marshal(opts)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -127,6 +134,7 @@ func init() {
 	createEsIndexCmd.Flags().StringVar(&indexName, "index", "accesslogs", "Name of index to create")
 	createEsIndexCmd.Flags().StringVar(&username, "username", "", "username for HTTP Basic Auth")
 	createEsIndexCmd.Flags().StringVar(&password, "password", "", "password for HTTP Basic Auth")
+	createEsIndexCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }
 
 type ESLogger struct {

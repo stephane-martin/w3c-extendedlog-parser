@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/inconshreveable/log15"
@@ -14,10 +15,10 @@ type esOpts struct {
 	M esMappings `json:"mappings"`
 }
 
-func newEsOpts(shards uint, replicas uint, checkStartup bool, refreshInterval time.Duration, fieldNames []string) esOpts {
+func newEsOpts(shards uint, replicas uint, checkStartup bool, refreshInterval time.Duration, fieldNames []string, excludes map[string]bool) esOpts {
 	return esOpts{
 		S: newSettings(shards, replicas, checkStartup, refreshInterval),
-		M: newMappings(fieldNames),
+		M: newMappings(fieldNames, excludes),
 	}
 }
 
@@ -45,10 +46,10 @@ type esMappings struct {
 	Mtyp esType `json:"accesslogs"`
 }
 
-func newMappings(fieldNames []string) esMappings {
+func newMappings(fieldNames []string, excludes map[string]bool) esMappings {
 	return esMappings{
 		Mtyp: esType{
-			Properties: newMessageFields(fieldNames),
+			Properties: newMessageFields(fieldNames, excludes),
 		},
 	}
 }
@@ -59,9 +60,12 @@ type esType struct {
 
 type esFields map[string]anyEsField
 
-func newMessageFields(fieldNames []string) (fields esFields) {
+func newMessageFields(fieldNames []string, excludes map[string]bool) (fields esFields) {
 	fields = make(map[string]anyEsField)
 	for _, name := range fieldNames {
+		if excludes[strings.ToLower(name)] {
+			continue
+		}
 		switch parser.GuessType(name) {
 		case parser.MyDate:
 			fields[name] = newDateField()

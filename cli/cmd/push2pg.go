@@ -235,7 +235,6 @@ func uploadPG(f io.Reader, excludes map[string]bool, connPool *pgx.ConnPool, bsi
 	columnNames := make([]string, 0, nbFields)
 	types := make(map[string]parser.Kind, nbFields)
 	for _, fName := range fNames {
-
 		// make sure column names are PG compatible
 		columnNames = append(columnNames, pgKey(fName))
 		// store the data type for each column

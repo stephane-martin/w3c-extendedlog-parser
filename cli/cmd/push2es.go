@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 
 	"github.com/inconshreveable/log15"
 	"github.com/olivere/elastic"
@@ -29,7 +28,15 @@ var push2esCmd = &cobra.Command{
 
 		client, err := getESClient(esURL, username, password, logger)
 		fatal(err)
-		for report := range uploadFilesES(client, filenames, batchsize) {
+
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+		excludes["date"] = true
+		excludes["time"] = true
+
+		for report := range uploadFilesES(client, filenames, batchsize, excludes) {
 			if report.err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to upload '%s': %s\n", report.filename, report.err.Error())
 			} else {
@@ -41,8 +48,7 @@ var push2esCmd = &cobra.Command{
 
 type processor struct {
 	*elastic.BulkProcessor
-	lines      []*parser.Line
-	pool       *sync.Pool
+	lines      []map[string]interface{}
 	fieldNames []string
 }
 
@@ -59,13 +65,8 @@ func newProcessor(client *elastic.Client, fieldNames []string, size int) (*proce
 	}
 	p := &processor{
 		BulkProcessor: proc,
-		lines:         make([]*parser.Line, 0, size),
+		lines:         make([]map[string]interface{}, 0, size),
 		fieldNames:    fieldNames,
-	}
-	p.pool = &sync.Pool{
-		New: func() interface{} {
-			return parser.NewLine(p.fieldNames)
-		},
 	}
 	return p, nil
 }
@@ -79,27 +80,20 @@ func (p *processor) flush() (nbLines int, err error) {
 	if err != nil {
 		return 0, err
 	}
-	for _, l := range p.lines {
-		p.pool.Put(l)
-	}
 	p.lines = p.lines[:0]
 	return nbLines, nil
 }
 
-func (p *processor) add(line *parser.Line) {
+func (p *processor) add(line map[string]interface{}) {
 	p.lines = append(p.lines, line)
 	p.Add(elastic.NewBulkIndexRequest().Doc(line).Index(indexName).Type("accesslogs"))
-}
-
-func (p *processor) getLine() *parser.Line {
-	return p.pool.Get().(*parser.Line)
 }
 
 func (p *processor) len() int {
 	return len(p.lines)
 }
 
-func uploadES(f io.Reader, client *elastic.Client, size int) (nbLines int, err error) {
+func uploadES(f io.Reader, client *elastic.Client, size int, excludes map[string]bool) (nbLines int, err error) {
 
 	p := parser.NewFileParser(f)
 	err = p.ParseHeader()
@@ -116,11 +110,18 @@ func uploadES(f io.Reader, client *elastic.Client, size int) (nbLines int, err e
 	var l *parser.Line
 
 	for {
-		l, err = p.NextTo(proc.getLine())
+		l, err = p.NextTo(l)
 		if l == nil || err != nil {
 			break
 		}
-		proc.add(l)
+		// TODO: avoid map allocation
+		props := l.GetAll()
+		for field := range props {
+			if excludes[strings.ToLower(field)] {
+				delete(props, field)
+			}
+		}
+		proc.add(props)
 		if proc.len() >= size {
 			nb, err := proc.flush()
 			if err != nil {
@@ -140,14 +141,14 @@ func uploadES(f io.Reader, client *elastic.Client, size int) (nbLines int, err e
 
 }
 
-func uploadFileES(client *elastic.Client, fname string, size int) (nbLines int, err error) {
+func uploadFileES(client *elastic.Client, fname string, size int, excludes map[string]bool) (nbLines int, err error) {
 	fname = strings.TrimSpace(fname)
 	f, err := os.Open(fname)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
-	nbLines, err = uploadES(f, client, size)
+	nbLines, err = uploadES(f, client, size, excludes)
 	if err != nil {
 		return 0, err
 	}
@@ -160,11 +161,11 @@ type uploadReport struct {
 	nbLines  int
 }
 
-func uploadFilesES(client *elastic.Client, fnames []string, size int) chan uploadReport {
+func uploadFilesES(client *elastic.Client, fnames []string, size int, excludes map[string]bool) chan uploadReport {
 	c := make(chan uploadReport)
 	go func() {
 		for _, fname := range fnames {
-			nbLines, err := uploadFileES(client, fname, size)
+			nbLines, err := uploadFileES(client, fname, size, excludes)
 			c <- uploadReport{filename: fname, err: err, nbLines: nbLines}
 		}
 		close(c)
@@ -204,4 +205,5 @@ func init() {
 	push2esCmd.Flags().StringVar(&username, "username", "", "Username for http basic auth")
 	push2esCmd.Flags().StringVar(&password, "password", "", "Password for http basic auth")
 	push2esCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "Batch size to upload to ES")
+	push2esCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }

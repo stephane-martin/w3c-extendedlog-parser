@@ -23,6 +23,13 @@ var esschemaCmd = &cobra.Command{
 	Use:   "esschema",
 	Short: "Prints an Elasticsearch mapping that can store access logs",
 	Run: func(cmd *cobra.Command, args []string) {
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+		excludes["time"] = true
+		excludes["date"] = true
+
 		var fieldsNames []string
 		fieldsLine = strings.TrimSpace(fieldsLine)
 		filename = strings.TrimSpace(filename)
@@ -55,7 +62,7 @@ var esschemaCmd = &cobra.Command{
 			fmt.Fprintln(os.Stderr, "field names not found")
 			os.Exit(-1)
 		}
-		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldsNames)
+		opts := newEsOpts(shards, replicas, check, time.Duration(refreshInterval)*time.Second, fieldsNames, excludes)
 		b, err := json.MarshalIndent(opts, "", "  ")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
@@ -73,4 +80,5 @@ func init() {
 	esschemaCmd.Flags().UintVar(&replicas, "replicas", 0, "number of replicas for the index")
 	esschemaCmd.Flags().BoolVar(&check, "check", false, "whether to check the index on startup")
 	esschemaCmd.Flags().IntVar(&refreshInterval, "refresh", 1, "refresh interval in seconds")
+	esschemaCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }

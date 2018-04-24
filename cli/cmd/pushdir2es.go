@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/inconshreveable/log15"
 	"github.com/spf13/cobra"
@@ -45,7 +46,15 @@ var pushdir2esCmd = &cobra.Command{
 
 		client, err := getESClient(esURL, username, password, logger)
 		fatal(err)
-		for report := range uploadFilesES(client, inputFiles, batchsize) {
+
+		excludes := make(map[string]bool)
+		for _, fName := range excludedFields {
+			excludes[strings.ToLower(fName)] = true
+		}
+		excludes["date"] = true
+		excludes["time"] = true
+
+		for report := range uploadFilesES(client, inputFiles, batchsize, excludes) {
 			if report.err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to upload '%s': %s\n", report.filename, report.err.Error())
 			} else {
@@ -65,4 +74,5 @@ func init() {
 	pushdir2esCmd.Flags().StringVar(&username, "username", "", "username for HTTP Basic Auth")
 	pushdir2esCmd.Flags().StringVar(&password, "password", "", "password for HTTP Basic Auth")
 	pushdir2esCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size to upload to ES")
+	pushdir2esCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 }
