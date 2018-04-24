@@ -95,8 +95,7 @@ func (l *Line) GetAsString(key string) string {
 	return itostr(l.fields[key])
 }
 
-// MarshalJSON implements the json.Marshaler interface.
-func (l *Line) MarshalJSON() ([]byte, error) {
+func (l *Line) GetAll() map[string]interface{} {
 	newFields := make(map[string]interface{}, len(l.fields)+1)
 	for k, v := range l.fields {
 		if v != nil {
@@ -107,7 +106,12 @@ func (l *Line) MarshalJSON() ([]byte, error) {
 	if !t.IsZero() {
 		newFields["@timestamp"] = t
 	}
-	return json.Marshal(newFields)
+	return newFields
+}
+
+// MarshalJSON implements the json.Marshaler interface.
+func (l *Line) MarshalJSON() ([]byte, error) {
+	return json.Marshal(l.GetAll())
 }
 
 // WriteTo writes the line to the given writer
