@@ -97,7 +97,8 @@ func NewFileParser(reader io.Reader) *FileParser {
 	if r, ok := reader.(*bufio.Reader); ok {
 		bufreader = r
 	} else {
-		bufreader = bufio.NewReader(reader)
+		// use a big buffer to minimize disk reads
+		bufreader = bufio.NewReaderSize(reader, 16*1024*1024)
 	}
 	parser := FileParser{
 		reader:  bufreader,
