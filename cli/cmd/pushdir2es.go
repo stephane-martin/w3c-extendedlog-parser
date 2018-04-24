@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/inconshreveable/log15"
 	"github.com/spf13/cobra"
@@ -54,7 +55,7 @@ var pushdir2esCmd = &cobra.Command{
 		excludes["date"] = true
 		excludes["time"] = true
 
-		for report := range uploadFilesES(client, inputFiles, batchsize, excludes) {
+		for report := range uploadFilesES(client, inputFiles, batchsize, excludes, time.Month(onlyMonth)) {
 			if report.err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to upload '%s': %s\n", report.filename, report.err.Error())
 			} else {
@@ -75,4 +76,5 @@ func init() {
 	pushdir2esCmd.Flags().StringVar(&password, "password", "", "password for HTTP Basic Auth")
 	pushdir2esCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size to upload to ES")
 	pushdir2esCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
+	pushdir2esCmd.Flags().IntVar(&onlyMonth, "month", 0, "Only upload logs from that month")
 }

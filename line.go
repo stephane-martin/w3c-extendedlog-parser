@@ -144,7 +144,12 @@ func (l *Line) GetTime() time.Time {
 
 func (l *Line) GetDate() (d Date) {
 	if l.fields["date"] != nil {
-		d = l.fields["date"].(Date)
+		return l.fields["date"].(Date)
+	}
+	t := l.GetTime()
+	if !t.IsZero() {
+		year, month, day := t.Date()
+		return Date{Day: day, Month: month, Year: year}
 	}
 	return d
 }

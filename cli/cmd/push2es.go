@@ -8,12 +8,15 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/inconshreveable/log15"
 	"github.com/olivere/elastic"
 	"github.com/spf13/cobra"
 	parser "github.com/stephane-martin/w3c-extendedlog-parser"
 )
+
+var onlyMonth int
 
 var push2esCmd = &cobra.Command{
 	Use:   "push2es",
@@ -36,7 +39,7 @@ var push2esCmd = &cobra.Command{
 		excludes["date"] = true
 		excludes["time"] = true
 
-		for report := range uploadFilesES(client, filenames, batchsize, excludes) {
+		for report := range uploadFilesES(client, filenames, batchsize, excludes, time.Month(onlyMonth)) {
 			if report.err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to upload '%s': %s\n", report.filename, report.err.Error())
 			} else {
@@ -93,7 +96,7 @@ func (p *processor) len() int {
 	return len(p.lines)
 }
 
-func uploadES(f io.Reader, client *elastic.Client, size int, excludes map[string]bool) (nbLines int, err error) {
+func uploadES(f io.Reader, client *elastic.Client, size int, excludes map[string]bool, month time.Month) (nbLines int, err error) {
 
 	p := parser.NewFileParser(f)
 	err = p.ParseHeader()
@@ -113,6 +116,9 @@ func uploadES(f io.Reader, client *elastic.Client, size int, excludes map[string
 		l, err = p.NextTo(l)
 		if l == nil || err != nil {
 			break
+		}
+		if month > 0 && month < 13 && l.GetDate().Month != month {
+			continue
 		}
 		// TODO: avoid map allocation
 		props := l.GetAll()
@@ -141,14 +147,14 @@ func uploadES(f io.Reader, client *elastic.Client, size int, excludes map[string
 
 }
 
-func uploadFileES(client *elastic.Client, fname string, size int, excludes map[string]bool) (nbLines int, err error) {
+func uploadFileES(client *elastic.Client, fname string, size int, excludes map[string]bool, month time.Month) (nbLines int, err error) {
 	fname = strings.TrimSpace(fname)
 	f, err := os.Open(fname)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
-	nbLines, err = uploadES(f, client, size, excludes)
+	nbLines, err = uploadES(f, client, size, excludes, month)
 	if err != nil {
 		return 0, err
 	}
@@ -161,11 +167,11 @@ type uploadReport struct {
 	nbLines  int
 }
 
-func uploadFilesES(client *elastic.Client, fnames []string, size int, excludes map[string]bool) chan uploadReport {
+func uploadFilesES(client *elastic.Client, fnames []string, size int, excludes map[string]bool, month time.Month) chan uploadReport {
 	c := make(chan uploadReport)
 	go func() {
 		for _, fname := range fnames {
-			nbLines, err := uploadFileES(client, fname, size, excludes)
+			nbLines, err := uploadFileES(client, fname, size, excludes, month)
 			c <- uploadReport{filename: fname, err: err, nbLines: nbLines}
 		}
 		close(c)
@@ -206,4 +212,5 @@ func init() {
 	push2esCmd.Flags().StringVar(&password, "password", "", "Password for http basic auth")
 	push2esCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "Batch size to upload to ES")
 	push2esCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
+	push2esCmd.Flags().IntVar(&onlyMonth, "month", 0, "Only upload logs from that month")
 }
