@@ -62,9 +62,24 @@ type esFields map[string]anyEsField
 
 func newMessageFields(fieldNames []string, excludes map[string]bool) (fields esFields) {
 	fields = make(map[string]anyEsField)
+FLoop:
 	for _, name := range fieldNames {
 		if excludes[strings.ToLower(name)] {
 			continue
+		}
+		switch name {
+		case "cs(user-agent)":
+			fields[name] = newTextField(true)
+			continue FLoop
+		case "cs-host":
+			fields[name] = newMulti()
+			continue FLoop
+		case "cs-uri-path":
+			fields[name] = newMulti()
+			continue FLoop
+		case "cs-uri-query":
+			fields[name] = newMulti()
+			continue FLoop
 		}
 		switch parser.GuessType(name) {
 		case parser.MyDate:
@@ -76,7 +91,7 @@ func newMessageFields(fieldNames []string, excludes map[string]bool) (fields esF
 		case parser.MyTimestamp:
 			fields[name] = newDatetimeField()
 		case parser.MyURI:
-			fields[name] = newKeyword()
+			fields[name] = newKeyword(false)
 		case parser.Float64:
 			fields[name] = newDoubleField()
 		case parser.Int64:
@@ -84,13 +99,13 @@ func newMessageFields(fieldNames []string, excludes map[string]bool) (fields esF
 		case parser.Bool:
 			fields[name] = newBoolField()
 		case parser.String:
-			fields[name] = newMulti()
+			fields[name] = newKeyword(true)
 		default:
-			fields[name] = newMulti()
+			fields[name] = newKeyword(true)
 		}
 	}
 	fields["@timestamp"] = newDatetimeField()
-	fields["fulltext"] = newTextField()
+	fields["fulltext"] = strEsField{Typ: "text", Copy: "", Store: false}
 	return fields
 }
 
@@ -135,8 +150,8 @@ func newIPField() ipEsField {
 type strMultiEsField struct {
 	Typ    string     `json:"type"`
 	Store  bool       `json:"store"`
-	Fields rawEsField `json:"fields"`
-	Copy   string     `json:"copy_to"`
+	Fields rawEsField `json:"fields,omitempty"`
+	Copy   string     `json:"copy_to,omitempty"`
 }
 
 type rawEsField struct {
@@ -163,20 +178,29 @@ func newMulti() strMultiEsField {
 type strEsField struct {
 	Typ   string `json:"type"`
 	Store bool   `json:"store"`
+	Copy  string `json:"copy_to,omitempty"`
 }
 
-func newKeyword() strEsField {
-	return strEsField{
+func newKeyword(copyfull bool) strEsField {
+	f := strEsField{
 		Typ:   "keyword",
 		Store: true,
 	}
+	if copyfull {
+		f.Copy = "fulltext"
+	}
+	return f
 }
 
-func newTextField() strEsField {
-	return strEsField{
+func newTextField(copyfull bool) strEsField {
+	f := strEsField{
 		Typ:   "text",
 		Store: true,
 	}
+	if copyfull {
+		f.Copy = "fulltext"
+	}
+	return f
 }
 
 type dateEsField struct {

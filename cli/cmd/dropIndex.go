@@ -16,8 +16,9 @@ var dropIndexCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		logger := log15.New()
 		logger.SetHandler(log15.StderrHandler)
+		params := esParams{url: esURL, username: username, password: password}
 
-		client, err := getESClient(esURL, username, password, logger)
+		client, err := getESClient(params, logger)
 		fatal(err)
 		resp, err := client.DeleteIndex(indexName).Do(context.Background())
 		fatal(err)

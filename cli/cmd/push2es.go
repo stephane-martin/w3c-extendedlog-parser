@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inconshreveable/log15"
@@ -28,8 +29,9 @@ var push2esCmd = &cobra.Command{
 
 		logger := log15.New()
 		logger.SetHandler(log15.StderrHandler)
+		params := esParams{url: esURL, username: username, password: password}
 
-		client, err := getESClient(esURL, username, password, logger)
+		_, err := getESClient(params, logger)
 		fatal(err)
 
 		excludes := make(map[string]bool)
@@ -39,7 +41,7 @@ var push2esCmd = &cobra.Command{
 		excludes["date"] = true
 		excludes["time"] = true
 
-		for report := range uploadFilesES(client, filenames, batchsize, excludes, time.Month(onlyMonth)) {
+		for report := range uploadFilesES(params, filenames, batchsize, excludes, time.Month(onlyMonth), int(parallel), logger) {
 			if report.err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to upload '%s': %s\n", report.filename, report.err.Error())
 			} else {
@@ -47,6 +49,12 @@ var push2esCmd = &cobra.Command{
 			}
 		}
 	},
+}
+
+type esParams struct {
+	url      string
+	username string
+	password string
 }
 
 type processor struct {
@@ -147,7 +155,11 @@ func uploadES(f io.Reader, client *elastic.Client, size int, excludes map[string
 
 }
 
-func uploadFileES(client *elastic.Client, fname string, size int, excludes map[string]bool, month time.Month) (nbLines int, err error) {
+func uploadFileES(params esParams, fname string, size int, excludes map[string]bool, month time.Month, logger log15.Logger) (nbLines int, err error) {
+	client, err := getESClient(params, logger)
+	if err != nil {
+		return 0, err
+	}
 	fname = strings.TrimSpace(fname)
 	f, err := os.Open(fname)
 	if err != nil {
@@ -167,39 +179,60 @@ type uploadReport struct {
 	nbLines  int
 }
 
-func uploadFilesES(client *elastic.Client, fnames []string, size int, excludes map[string]bool, month time.Month) chan uploadReport {
+func uploadFilesES(params esParams, fnames []string, size int, excludes map[string]bool, month time.Month, workers int, logger log15.Logger) chan uploadReport {
+	if workers <= 0 {
+		workers = 1
+	}
 	c := make(chan uploadReport)
+	filenames := make(chan string)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				fname, ok := <-filenames
+				if !ok {
+					return
+				}
+				nbLines, err := uploadFileES(params, fname, size, excludes, month, logger)
+				c <- uploadReport{filename: fname, err: err, nbLines: nbLines}
+			}
+		}()
+	}
 	go func() {
 		for _, fname := range fnames {
-			nbLines, err := uploadFileES(client, fname, size, excludes, month)
-			c <- uploadReport{filename: fname, err: err, nbLines: nbLines}
+			filenames <- fname
 		}
+		close(filenames)
+		wg.Wait()
 		close(c)
 	}()
+
 	return c
 }
 
-func getESClient(url string, username string, password string, logger log15.Logger) (*elastic.Client, error) {
+func getESClient(params esParams, logger log15.Logger) (*elastic.Client, error) {
 	elasticOpts := []elastic.ClientOptionFunc{}
-	elasticOpts = append(elasticOpts, elastic.SetURL(url))
+	elasticOpts = append(elasticOpts, elastic.SetURL(params.url))
 	elasticOpts = append(elasticOpts, elastic.SetErrorLog(&esLogger{Logger: logger}))
 
-	if strings.HasPrefix(url, "https://") {
+	if strings.HasPrefix(params.url, "https://") {
 		elasticOpts = append(elasticOpts, elastic.SetScheme("https"))
 	}
 	if len(username) > 0 && len(password) > 0 {
-		elasticOpts = append(elasticOpts, elastic.SetBasicAuth(username, password))
+		elasticOpts = append(elasticOpts, elastic.SetBasicAuth(params.username, params.password))
 	}
 
 	client, err := elastic.NewClient(elasticOpts...)
 	if err != nil {
 		return nil, err
 	}
-	version, err := client.ElasticsearchVersion(esURL)
+	version, err := client.ElasticsearchVersion(params.url)
 	if err != nil {
 		return nil, err
 	}
-	logger.Info("Elasticsearch version", "version", version)
+	logger.Debug("Elasticsearch version", "version", version)
 	return client, nil
 }
 
@@ -213,4 +246,5 @@ func init() {
 	push2esCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "Batch size to upload to ES")
 	push2esCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 	push2esCmd.Flags().IntVar(&onlyMonth, "month", 0, "Only upload logs from that month")
+	push2esCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
 }

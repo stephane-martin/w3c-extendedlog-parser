@@ -43,9 +43,10 @@ var pushdir2esCmd = &cobra.Command{
 		fmt.Fprintln(os.Stderr)
 
 		logger := log15.New()
-		logger.SetHandler(log15.StderrHandler)
+		logger.SetHandler(log15.LvlFilterHandler(log15.LvlInfo, log15.StderrHandler))
+		params := esParams{url: esURL, username: username, password: password}
 
-		client, err := getESClient(esURL, username, password, logger)
+		_, err = getESClient(params, logger)
 		fatal(err)
 
 		excludes := make(map[string]bool)
@@ -55,7 +56,7 @@ var pushdir2esCmd = &cobra.Command{
 		excludes["date"] = true
 		excludes["time"] = true
 
-		for report := range uploadFilesES(client, inputFiles, batchsize, excludes, time.Month(onlyMonth)) {
+		for report := range uploadFilesES(params, inputFiles, batchsize, excludes, time.Month(onlyMonth), int(parallel), logger) {
 			if report.err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to upload '%s': %s\n", report.filename, report.err.Error())
 			} else {
@@ -77,4 +78,5 @@ func init() {
 	pushdir2esCmd.Flags().IntVar(&batchsize, "batchsize", 5000, "batch size to upload to ES")
 	pushdir2esCmd.Flags().StringArrayVar(&excludedFields, "exclude", []string{}, "exclude that field from collection (can be repeated)")
 	pushdir2esCmd.Flags().IntVar(&onlyMonth, "month", 0, "Only upload logs from that month")
+	pushdir2esCmd.Flags().Uint8Var(&parallel, "parallel", 1, "number of parallel injectors")
 }
