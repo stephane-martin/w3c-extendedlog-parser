@@ -294,11 +294,8 @@ func uploadPG(f io.Reader, excludes map[string]bool, connPool *pgx.ConnPool, bsi
 		nbLines++
 		for _, fName := range fNames {
 			if fName == "id" {
-				uuid, err := uuid.NewV1()
-				if err != nil {
-					return 0, err
-				}
-				err = row.AddField(uuid.Bytes())
+				uuid := uuid.NewV1()
+				err := row.AddField(uuid.Bytes())
 				if err != nil {
 					return 0, err
 				}
